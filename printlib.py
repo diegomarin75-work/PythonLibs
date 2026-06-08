@@ -71,7 +71,7 @@ class PrintingLibrary:
   #   str: Text wrapped in ANSI escape codes that reset at the end of the string.
   # ----------------------------------------------------------------------------------------------------------------------
   def AnsiColor(self,Text,FgColor,BkColor=None):
-    BackgroundColor=";"+BkColor if BkColor is not None else ""
+    BackgroundColor=";"+str(BkColor) if BkColor is not None else ""
     return f"{self.ANSI_ESCAPE_PREFIX}{FgColor}{BackgroundColor}m{Text}{self.ANSI_ESCAPE_PREFIX}0m"
 
   # ----------------------------------------------------------------------------------------------------------------------
@@ -331,7 +331,7 @@ class PrintingLibrary:
     Line="│"
     Index=0
     for Column in Heading1:
-      Line+=Column.center(Lengths[Index])+"│"
+      Line+=self.AnsiColor(Column.center(Lengths[Index]),self.ANSI_FB_CYAN,self.ANSI_BD_BLUE)+"│"
       if Index >= MaxColumn:
         break
       Index+=1
@@ -340,7 +340,7 @@ class PrintingLibrary:
       Line="│"
       Index=0
       for Column in Heading2:
-        Line+=Column.center(Lengths[Index])+"│"
+        Line+=self.AnsiColor(Column.center(Lengths[Index]),self.ANSI_FB_CYAN,self.ANSI_BD_BLUE)+"│"
         if Index >= MaxColumn:
           break
         Index+=1
