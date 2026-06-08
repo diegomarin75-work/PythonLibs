@@ -3,16 +3,17 @@ import os
 import re
 import sys
 
-# ---------------------------------------------------------------------------------------------------------------------
-# Printing library with console formatting capabilities
-# ---------------------------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------------------------
+# PrintingLibrary provides console formatting, ANSI color support, and table-printing capabilities.
+# -------------------------------------------------------------------------------------------------------------------
 class PrintingLibrary:
 
-  #Private constants
-  _SEPARATOR_ID="$SEP$"
-  _WHEEL_CHARS=["-","\\","|","/"]
+  #Private constants used for separator identification and spinner animation characters
+  _SEPARATOR_ID = "$SEP$"
+  _WHEEL_CHARS = ["-", "\\", "|", "/"]
 
-  #Ansi colors (fmt: off)
+  #fmt: off
+  #ANSI color escape constants
   ANSI_ESCAPE_PREFIX="\033["
   ANSI_FD_BLACK  =30; ANSI_BD_BLACK  =40; ANSI_FB_BLACK  =90; ANSI_BB_BLACK  =100;
   ANSI_FD_RED    =31; ANSI_BD_RED    =41; ANSI_FB_RED    =91; ANSI_BB_RED    =101;
@@ -22,223 +23,273 @@ class PrintingLibrary:
   ANSI_FD_MAGENTA=35; ANSI_BD_MAGENTA=45; ANSI_FB_MAGENTA=95; ANSI_BB_MAGENTA=105;
   ANSI_FD_CYAN   =36; ANSI_BD_CYAN   =46; ANSI_FB_CYAN   =96; ANSI_BB_CYAN   =106;
   ANSI_FD_WHITE  =37; ANSI_BD_WHITE  =47; ANSI_FB_WHITE  =97; ANSI_BB_WHITE  =107;
+  #fmt: on
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Class constructor: Initializes all class variables
-  # ----------------------------------------------------------------------------------------------------------------------
-  def __init__(self):
-    self._message_count=0
-    self._bar_step=0
-    self._last_text=""
-    self._last_volatile=False
-    self._silent_mode=False
-    self._volatile_enabled=True
-    self._progbar_enabled=True
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Compute the available console width in characters.
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method initializes the PrintingLibrary instance and sets all default state values.
+  # Args:
+  #   None
   # Returns:
-  #  int: Usable width for output; defaults to 9999 when stdout is not a TTY.
-  # ----------------------------------------------------------------------------------------------------------------------
+  #   None
+  # -----------------------------------------------------------------------------------------------------------------
+  def __init__(self):
+
+    #Initialize all instance state variables to their default values
+    self._MessageCount = 0
+    self._BarStep = 0
+    self._LastText = ""
+    self._LastVolatile = False
+    self._SilentMode = False
+    self._ColorEnabled = True
+    self._VolatileEnabled = True
+    self._ProgbarEnabled = True
+
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method returns the available console width in characters.
+  # Args:
+  #   None
+  # Returns:
+  #   int: Usable column count; defaults to 9999 when stdout is not a TTY.
+  # -----------------------------------------------------------------------------------------------------------------
   def GetConsoleWidth(self):
+
+    #Query terminal size when running in an interactive TTY
     if sys.stdout.isatty():
-      Console=os.get_terminal_size()
-      ConsoleWidth=Console.columns
+      Console = os.get_terminal_size()
+      ConsoleWidth = Console.columns
     else:
-      ConsoleWidth=9999
+      ConsoleWidth = 9999
     return ConsoleWidth
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Compute the available console height in rows.
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method returns the available console height in rows.
+  # Args:
+  #   None
   # Returns:
-  #   int: Usable height for output; defaults to 9999 when stdout is not a TTY.
-  # ----------------------------------------------------------------------------------------------------------------------
+  #   int: Usable row count; defaults to 9999 when stdout is not a TTY.
+  # -----------------------------------------------------------------------------------------------------------------
   def GetConsoleHeight(self):
+
+    #Query terminal size when running in an interactive TTY
     if sys.stdout.isatty():
-      Console=os.get_terminal_size()
-      ConsoleHeight=Console.lines
+      Console = os.get_terminal_size()
+      ConsoleHeight = Console.lines
     else:
-      ConsoleHeight=9999
+      ConsoleHeight = 9999
     return ConsoleHeight
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Wrap a string with ANSI escape codes for foreground/background colors.
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method wraps a string with ANSI escape codes for foreground and optional background colors.
   # Args:
   #   Text (str): Text to decorate.
   #   FgColor (int): ANSI foreground color code.
-  #   BkColor (int | None): Optional ANSI background color code; defaults to black.
+  #   BkColor (int | None): Optional ANSI background color code; omitted when None.
   # Returns:
   #   str: Text wrapped in ANSI escape codes that reset at the end of the string.
-  # ----------------------------------------------------------------------------------------------------------------------
-  def AnsiColor(self,Text,FgColor,BkColor=None):
-    BackgroundColor=";"+str(BkColor) if BkColor is not None else ""
+  # -----------------------------------------------------------------------------------------------------------------
+  def AnsiColor(self, Text, FgColor, BkColor=None):
+
+    #Return plain text when color output is disabled
+    if self._ColorEnabled == False:
+      return Text
+
+    #Wrap text with ANSI color escape codes
+    BackgroundColor = ";" + str(BkColor) if BkColor is not None else ""
     return f"{self.ANSI_ESCAPE_PREFIX}{FgColor}{BackgroundColor}m{Text}{self.ANSI_ESCAPE_PREFIX}0m"
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Enable or disable silent mode for all printing operations.
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method sets whether ANSI color codes should be included in output.
   # Args:
-  #   Enabled (bool): When True,suppresses all subsequent output until disabled.
-  # ----------------------------------------------------------------------------------------------------------------------
-  def SetSilentMode(self,Enabled):
-    self._silent_mode=Enabled
+  #   Enabled (bool): When True, ANSI color codes are emitted; when False, output is plain text.
+  # Returns:
+  #   None
+  # -----------------------------------------------------------------------------------------------------------------
+  def SetColorEnabled(self, Enabled):
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Enable or disable volatile message output
+    #Update color-enabled flag
+    self._ColorEnabled = Enabled
+
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method enables or disables silent mode, suppressing all output when active.
   # Args:
-  #   Enabled (bool): When True,all volatile message output is ignored
-  # ----------------------------------------------------------------------------------------------------------------------
-  def SetVolatileEnabled(self,Enabled):
-    self._volatile_enabled=Enabled
+  #   Enabled (bool): When True, all subsequent output is suppressed.
+  # Returns:
+  #   None
+  # -----------------------------------------------------------------------------------------------------------------
+  def SetSilentMode(self, Enabled):
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Enable or disable progress bar on message output
+    #Update silent-mode flag
+    self._SilentMode = Enabled
+
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method enables or disables volatile message output.
   # Args:
-  #   Enabled (bool): When True,progress bar output in messages is ignored
-  # ----------------------------------------------------------------------------------------------------------------------
-  def SetProgbarEnabled(self,Enabled):
-    self._progbar_enabled=Enabled
+  #   Enabled (bool): When True, volatile messages are emitted; when False, they are discarded.
+  # Returns:
+  #   None
+  # -----------------------------------------------------------------------------------------------------------------
+  def SetVolatileEnabled(self, Enabled):
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Modified length function that takes into account ANSI OSC8 hyperlinks and ANSI color codes that do not count for printed length on the screen
+    #Update volatile-enabled flag
+    self._VolatileEnabled = Enabled
+
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method enables or disables the progress bar in message output.
+  # Args:
+  #   Enabled (bool): When True, progress bar output is rendered; when False, it is suppressed.
+  # Returns:
+  #   None
+  # -----------------------------------------------------------------------------------------------------------------
+  def SetProgbarEnabled(self, Enabled):
+
+    #Update progress-bar-enabled flag
+    self._ProgbarEnabled = Enabled
+
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method returns the visible printed length of a string, ignoring ANSI escape sequences.
   # Args:
   #   Value (str): String to measure.
   # Returns:
   #   int: Visible length of the string when printed to the console.
-  # ----------------------------------------------------------------------------------------------------------------------
-  def VisibleLength(self,Value):
-    AnsiOsc8=re.compile(r"\x1b\]8;;.*?\x1b\\(.*?)\x1b\]8;;\x1b\\",re.VERBOSE)
-    AnsiEscape=re.compile(r"""\x1B\[[0-9;]*[mK]""",re.VERBOSE)
-    Clean=AnsiOsc8.sub(r"\1",Value)
-    Clean=AnsiEscape.sub("",Clean)
+  # -----------------------------------------------------------------------------------------------------------------
+  def VisibleLength(self, Value):
+
+    #Strip ANSI OSC8 hyperlink sequences and color codes before measuring
+    ANSI_OSC8 = re.compile(r"\x1b\]8;;.*?\x1b\\(.*?)\x1b\]8;;\x1b\\", re.VERBOSE)
+    ANSI_ESCAPE = re.compile(r"""\x1B\[[0-9;]*[mK]""", re.VERBOSE)
+    Clean = ANSI_OSC8.sub(r"\1", Value)
+    Clean = ANSI_ESCAPE.sub("", Clean)
     return len(Clean)
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Wrap text to a given width while preserving indentation. Two characters are treated specially:
-  # -\u00A0: Represents a non-breaking space that prevents wrapping at that position.
-  # -\uE000: Represents a forced line break that splits the text into separate paragraphs.
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method wraps text to a given width while preserving indentation.
+  # Special characters: \u00A0 is a non-breaking space; \uE000 is a forced line break.
   # Args:
   #   Text (str): Text to wrap.
   #   Width (int): Maximum line width before wrapping.
-  #   Indentation (int): Spaces to prepend when continuing onto a new wrapped line.
+  #   Indentation (int): Number of spaces to prepend when continuing onto a new wrapped line.
   # Returns:
-  #   str: Wrapped paragraph containing newline-delimited lines.
-  # ----------------------------------------------------------------------------------------------------------------------
-  def FormatParagraph(self,Text,Width,Indentation=0):
+  #   str: Wrapped text containing newline-delimited lines.
+  # -----------------------------------------------------------------------------------------------------------------
+  def FormatParagraph(self, Text, Width, Indentation=0):
 
-    #Split first by forced breaks
-    Paragraphs=Text.split("\uE000")
-    
-    #Process each paragraph
-    OutputLines=[]
+    #Split input text into paragraphs at forced line-break characters
+    Paragraphs = Text.split("\uE000")
+
+    #Process each paragraph independently
+    OutputLines = []
     for Paragraph in Paragraphs:
 
-      #Get words from text
-      WorkingText=Paragraph.replace("\n"," ").replace("\r","").replace("\t"," ")
+      #Normalize whitespace and split into words
+      WorkingText = Paragraph.replace("\n", " ").replace("\r", "").replace("\t", " ")
       while "  " in WorkingText:
-        WorkingText=WorkingText.replace("  "," ")
-      Words=WorkingText.split(" ")
+        WorkingText = WorkingText.replace("  ", " ")
+      Words = WorkingText.split(" ")
 
-      #Print words with wrapping
-      Line=""
+      #Wrap words into lines within the specified width
+      Line = ""
       for Word in Words:
-        if self.VisibleLength(Line+Word) <= Width:
-          Line+=Word+" "
+        if self.VisibleLength(Line + Word) <= Width:
+          Line += Word + " "
         else:
           OutputLines.append(Line[:-1])
-          Line=" "*Indentation+Word+" "
+          Line = " " * Indentation + Word + " "
       if Line:
         OutputLines.append(Line[:-1])
-    
-    #Replace non-breaking spaces
-    OutputLines=[Line.replace("\u00A0"," ") for Line in OutputLines]
 
-    #Return formatted paragraph
+    #Replace non-breaking space placeholders with regular spaces
+    OutputLines = [Line.replace("\u00A0", " ") for Line in OutputLines]
+
+    #Return all lines joined by newlines
     return "\n".join(OutputLines).strip("\n")
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Output a formatted line with optional wheel,severity class,or progress bar.
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method outputs a formatted message with optional spinner, severity class, or progress bar.
   # Args:
   #   Text (str): Message body to print.
-  #   Wheel (bool): When True,prefixes a spinner animation.
-  #   Volatile (bool): When True,prints without newline so future output can overwrite it.
-  #   Partial (bool): Behaves like volatile but meant for intermediate progress text.
-  #   ClassName (str): Optional label prepended in square brackets (ERR/WARN/etc.).
+  #   Wheel (bool): When True, prefixes a spinner animation character.
+  #   Volatile (bool): When True, prints without newline so future output can overwrite it.
+  #   Partial (bool): Like Volatile but intended for intermediate progress text.
+  #   ClassName (str): Optional label prepended in square brackets (e.g. ERR, WARN).
   #   BarProgress (int | None): Explicit tick count to render inside the progress bar.
   #   BarLength (int | None): Total number of ticks that make up the progress bar.
   # Returns:
   #   None
-  # ----------------------------------------------------------------------------------------------------------------------
-  def Print(self,Text,Wheel=False,Volatile=False,Partial=False,ClassName="",BarProgress=None,BarLength=None):
+  # -----------------------------------------------------------------------------------------------------------------
+  def Print(self, Text, Wheel=False, Volatile=False, Partial=False, ClassName="", BarProgress=None, BarLength=None):
 
     #Do not print if silent mode is enabled
-    if self._silent_mode:
+    if self._SilentMode:
       return
 
-    #Initializations
-    ConsoleWidth=self.GetConsoleWidth()
-    OutputText=Text
-    Stream=sys.stdout
+    #Initialize output variables
+    ConsoleWidth = self.GetConsoleWidth()
+    OutputText = Text
+    Stream = sys.stdout
 
-    #Switch to stderr for errors
-    if ClassName.upper() in ["ERR","ERROR","FAIL","FAILURE"]:
-      Stream=sys.stderr
+    #Switch to stderr stream for error-class messages
+    if ClassName.upper() in ["ERR", "ERROR", "FAIL", "FAILURE"]:
+      Stream = sys.stderr
 
-    #Print wheel
-    if Wheel==True:
-      OutputText="["+self._WHEEL_CHARS[self._message_count % 4]+"] "+OutputText
-      self._message_count+=1
+    #Prepend spinner character when wheel mode is requested
+    if Wheel == True:
+      OutputText = "[" + self._WHEEL_CHARS[self._MessageCount % 4] + "] " + OutputText
+      self._MessageCount += 1
 
-    #Print progress bar
-    if BarLength is not None and self._progbar_enabled==True:
+    #Render progress bar when bar length is provided
+    if BarLength is not None and self._ProgbarEnabled == True:
       if BarProgress is not None:
-        OutputText="["+"#"*BarProgress+"."*(BarLength-BarProgress)+"] "+OutputText
+        OutputText = self.AnsiColor("█"*BarProgress,self.ANSI_FD_WHITE) + self.AnsiColor("█"*(BarLength-BarProgress),self.ANSI_FB_BLACK) + " " + OutputText
       else:
-        if self._bar_step<BarLength:
-          self._bar_step+=1
-        OutputText="["+"#"*self._bar_step+"."*(BarLength-self._bar_step)+"] "+OutputText
+        if self._BarStep < BarLength:
+          self._BarStep += 1
+        OutputText = self.AnsiColor("█"*self._BarStep,self.ANSI_FD_WHITE) + self.AnsiColor("█"*(BarLength-self._BarStep),self.ANSI_FB_BLACK) + " " + OutputText
 
-    #Print class name
-    if len(ClassName)!=0:
-      OutputText="["+ClassName.upper()+"] "+OutputText
+    #Prepend class name label when provided
+    if len(ClassName) != 0:
+      OutputText = "[" + ClassName.upper() + "] " + OutputText
 
-    #Clean last output of last message was volatile
-    if self._last_volatile==True:
-      print("\r",end="",flush=True,file=Stream)
-      print(" "*len(self._last_text),end="\r",flush=True,file=Stream)
+    #Erase previous line when the last message was volatile
+    if self._LastVolatile == True:
+      print("\r", end="", flush=True, file=Stream)
+      print(" " * len(self._LastText), end="\r", flush=True, file=Stream)
 
-    #Output text
-    if (Volatile==True and self._volatile_enabled==True) or Partial==True:
-      OutputText=OutputText[:ConsoleWidth-2]
-      print(OutputText,end="",flush=True,file=Stream)
+    #Print text in volatile or normal mode
+    if (Volatile == True and self._VolatileEnabled == True) or Partial == True:
+      if self.VisibleLength(OutputText) > ConsoleWidth - 2:
+        OutputText = OutputText[:ConsoleWidth - 2]
+      print(OutputText, end="", flush=True, file=Stream)
     else:
-      print(OutputText,file=Stream)
+      print(OutputText, file=Stream)
 
-    #Save last message output
-    self._last_text=OutputText
-    self._last_volatile=(True if (Volatile==True and self._volatile_enabled==True) else False)
+    #Save last message output state for next call
+    self._LastText = OutputText
+    self._LastVolatile = (True if (Volatile == True and self._VolatileEnabled == True) else False)
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Adds a horizontal separation line to the row data list to use with PrintTable()
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method appends a horizontal separator marker to the row data list for use with PrintTable.
   # Args:
-  #   Rows (list[list[str]]): Data rows
+  #   Rows (list): Data rows list to append the separator to.
   # Returns:
   #   None
-  # ----------------------------------------------------------------------------------------------------------------------
-  def AddHline(self,Rows):
+  # -----------------------------------------------------------------------------------------------------------------
+  def AddHline(self, Rows):
+
+    #Append a separator marker row to the list
     Rows.append([self._SEPARATOR_ID])
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Pretty-print a table with wrapping,alignment,and optional return buffer.
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method pretty-prints a table with column wrapping, alignment, and optional return buffer.
   # Args:
-  #   Heading1 (list[str]): Primary header row labels.
-  #   Heading2 (list[str] | None): Secondary header row labels or None when unused.
-  #   ColAttributes (list[str]): Column format codes (alignment,wrapping,auto width,etc.).
-  #   Rows (list[list[str]]): Data rows; use self._SEPARATOR_ID to insert horizontal dividers.
-  #   ReturnOutput (bool): When True,returns a list of rendered lines instead of printing.
+  #   Heading1 (list): Primary header row labels.
+  #   Heading2 (list | None): Secondary header row labels, or None when unused.
+  #   ColAttributes (list): Column format codes (alignment, wrapping, auto-width, etc.).
+  #   Rows (list): Data rows; use AddHline to insert horizontal dividers.
+  #   ReturnOutput (bool): When True, returns rendered lines instead of printing them.
   #   ConsoleWidth (int | None): Optional console width override; defaults to detected width.
   # Returns:
-  #   list[str] | None: Rendered table lines if ReturnOutput is True; otherwise None.
-  # ----------------------------------------------------------------------------------------------------------------------
+  #   list | None: Rendered table lines when ReturnOutput is True; otherwise None.
+  # -----------------------------------------------------------------------------------------------------------------
   def PrintTable(self,Heading1,Heading2,ColAttributes,Rows,ReturnOutput=False,ConsoleWidth=None):
 
     #Calculate max column to print according to data length and maximun width
