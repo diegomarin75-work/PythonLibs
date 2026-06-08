@@ -314,29 +314,38 @@ class PrintingLibrary:
         if not Truncated:
           break
 
-    #Separator line
-    Separator="-"*TableWidth
-
-    #Print column headings
-    Output.append(Separator)
-    Line="|"
+    #Calculate separators
+    RawSeparator="┼"
     Index=0
     for Column in Heading1:
-      Line+=Column.center(Lengths[Index])+"|"
+      RawSeparator+="─"*Lengths[Index]+"┼"
+      if Index >= MaxColumn:
+        break
+      Index+=1
+    TopSeparator=("╭"+RawSeparator[1:-1]+"╮").replace("┼","┬")
+    MidSeparator="├"+RawSeparator[1:-1]+"┤"
+    BottomSeparator=("╰"+RawSeparator[1:-1]+"╯").replace("┼","┴")
+
+    #Print column headings
+    Output.append(TopSeparator)
+    Line="│"
+    Index=0
+    for Column in Heading1:
+      Line+=Column.center(Lengths[Index])+"│"
       if Index >= MaxColumn:
         break
       Index+=1
     Output.append(Line)
     if Heading2 is not None:
-      Line="|"
+      Line="│"
       Index=0
       for Column in Heading2:
-        Line+=Column.center(Lengths[Index])+"|"
+        Line+=Column.center(Lengths[Index])+"│"
         if Index >= MaxColumn:
           break
         Index+=1
       Output.append(Line)
-    Output.append(Separator)
+    Output.append(MidSeparator)
 
     #Format data for multiline columns
     LeveledRows=[]
@@ -368,10 +377,10 @@ class PrintingLibrary:
     #Print table
     for Row in LeveledRows:
       if Row[0]==self._SEPARATOR_ID:
-        Output.append(Separator)
+        Output.append(MidSeparator)
       else:
         Index=0
-        Line="|"
+        Line="│"
         for Field in Row:
           if "A" not in ColAttributes[Index]:
             FieldValue=Field[:Lengths[Index]]
@@ -390,13 +399,13 @@ class PrintingLibrary:
               FieldValue=Field+(" "*Padding)
             else:
               FieldValue=(" "*Padding)+Field
-          Line+=FieldValue+"|"
+          Line+=FieldValue+"│"
           if Index >= MaxColumn:
             break
           Index+=1
-        if self.VisibleLength(Line.replace(" ","").replace("|",""))!=0:
+        if self.VisibleLength(Line.replace(" ","").replace("│",""))!=0:
           Output.append(Line)
-    Output.append(Separator)
+    Output.append(BottomSeparator)
 
     #Column count warning
     if MaxColumn<len(Lengths)-1:
