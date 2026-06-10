@@ -136,6 +136,10 @@ class SnowflakeManager:
     if self._ConnectionObj is not None and self._ConnectionName==ConnectionName:
       return True,""
 
+    #Close existing connection if any
+    if self._ConnectionObj is not None:
+      self.CloseConnection()
+
     #Wait for library import
     Status,Message=self._ImportLibraries()
     if Status==False:
@@ -145,9 +149,9 @@ class SnowflakeManager:
     try:
       with contextlib.redirect_stdout(io.StringIO()):
         if self._ConnParameters is not None:
-          self._ConnectionObj=self._SnowflakeConnect(**self._ConnParameters)
+          self._ConnectionObj=self._SnowflakeConnect(**self._ConnParameters,insecure_mode=True)
         else:
-          self._ConnectionObj=self._SnowflakeConnect(connections_file_path=pathlib.Path(self._ConnectionsFile),connection_name=ConnectionName)
+          self._ConnectionObj=self._SnowflakeConnect(connections_file_path=pathlib.Path(self._ConnectionsFile),connection_name=ConnectionName,insecure_mode=True)
       self._ConnectionName=ConnectionName
     except Exception as Ex:
       Message=f"Cannot open connection to Snowflake: {str(Ex)}"
@@ -257,3 +261,35 @@ class SnowflakeManager:
 
     #Return results
     return True,"",ResultDict
+
+  # ----------------------------------------------------------------------------------------------------------------------
+  # Exposes the Snowflake split_statements utility.
+  # Args:
+  #   Script (str): SQL script to split.
+  # Returns:
+  #   list: List of statements.
+  # ----------------------------------------------------------------------------------------------------------------------
+  def SplitStatements(self,Script):
+    Status,Message=self._ImportLibraries()
+    if Status==False:
+      return []
+    return self._SnowflakeSplitStatements(io.StringIO(Script),remove_comments=True)
+
+  # ----------------------------------------------------------------------------------------------------------------------
+  # Execute a query and return raw results and metadata.
+  # Args:
+  #   Query (str): SQL query to execute.
+  # Returns:
+  #   tuple[bool,str,list[tuple] | None,list | None]: Success flag,message,fetched results,and metadata when successful.
+  # ----------------------------------------------------------------------------------------------------------------------
+  def ExecuteRawQuery(self,Query):
+    if self._ConnectionObj is None:
+      return False,"Snowflake connection is not open",None,None
+    try:
+      Cursor=self._ConnectionObj.cursor()
+      Cursor.execute(Query)
+      Result=Cursor.fetchall()
+      Metadata=Cursor.description
+      return True,"",Result,Metadata
+    except Exception as Ex:
+      return False,f"Execution error: {str(Ex)}",None,None
