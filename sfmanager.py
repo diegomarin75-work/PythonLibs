@@ -157,21 +157,11 @@ class SnowflakeManager:
   # -----------------------------------------------------------------------------------------------------------------
   # This method runs a SQL statement or list of statements against the active Snowflake connection.
   # Args:
-  #   Query (str | list): SQL statement or list of SQL statements to execute.
+  #   Query (str): SQL statement
   # Returns:
   #   tuple: Success flag,message,and list of result dictionaries when successful.
   # -----------------------------------------------------------------------------------------------------------------
   def ExecuteSqlQuery(self,Query):
-
-    #Multi-statement mode: recursively execute each statement in the list
-    if isinstance(Query,list):
-      AllResults=[]
-      for SingleQuery in Query:
-        Status,Message,Result=self.ExecuteSqlQuery(SingleQuery)
-        if Status==False:
-          return False,Message,None
-        AllResults.extend(Result)
-      return True,"",AllResults
 
     #Exit if execution was cancelled by user
     if self._ExecutionDisabled==True:

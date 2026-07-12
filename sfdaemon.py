@@ -1,4 +1,7 @@
+#Implement split statements inside daemon (library load time is significant)
+
 #Import libraries
+import io
 import os
 import sys
 import json
@@ -335,7 +338,7 @@ class SqlDaemon:
       Rows=Cursor.fetchall()
       MetaData=Cursor.description
     except Exception as Ex:
-      return False,f"Execution error: {str(Ex)}",None,None
+      return False,f"{str(Ex)}",None,None
 
     #Convert fetched rows to lower-case column dictionaries
     if RawMode==True:
@@ -457,7 +460,7 @@ class SqlDaemon:
       #Update run state file after command execution
       Status,Message=self._UpdateRunStateFile()
       if Status==False:
-        self._DebugLog.Send(f"ERROR {Message}")
+        self._DebugLog.Send(f"{Message}")
     
     #Exception handling for command execution
     except Exception as Ex:
@@ -472,7 +475,7 @@ class SqlDaemon:
     except Exception as Ex:
       SocketConnection.close()
       Message=f"Failed to send response: {str(Ex)}"
-      self._DebugLog.Send(f"ERROR {Message}")
+      self._DebugLog.Send(f"{Message}")
       return
 
     #Close socket connection after processing request
@@ -490,13 +493,13 @@ class SqlDaemon:
     
     #Find free port to listen on
     if self._FindFreePort()==False:
-      self._DebugLog.Send(f"ERROR Cannot find free port to listen on")
+      self._DebugLog.Send(f"Cannot find free port to listen on")
       return False
 
     #Persist initial state file before entering socket loop
     Status,Message=self._UpdateRunStateFile()
     if Status==False:
-      self._DebugLog.Send(f"ERROR {Message}")
+      self._DebugLog.Send(f"{Message}")
       return False
     
     #Open listening socket and process incoming requests
@@ -521,7 +524,7 @@ class SqlDaemon:
         Status,Message,Request,RequestLen=self._GetSocketRequest(SocketConnection)
         if Status==False:
           SocketConnection.close()
-          self._DebugLog.Send(f"ERROR {Message}")
+          self._DebugLog.Send(f"{Message}")
           continue
         self._DebugLog.Send(f"Received request of {RequestLen} bytes from {Address[0]}:{Address[1]}")
 
@@ -529,7 +532,7 @@ class SqlDaemon:
         if "command" not in Request:
           SocketConnection.close()
           Message="Invalid request, missing command"
-          self._DebugLog.Send(f"ERROR {Message}")
+          self._DebugLog.Send(f"{Message}")
           continue
         Command=Request["command"]
 
@@ -562,14 +565,18 @@ class SqlClient:
   # Initialize daemon state
   # Args:
   # - ConnectionsFile (str): Path to connections.toml file (optional)
+  # - Debug (bool): If True, enable debug mode
   # Returns: None
   # ----------------------------------------------------------------------------------------------------------------------
-  def __init__(self,ConnectionsFile=None):
+  def __init__(self,ConnectionsFile=None,Debug=False):
     
     #Initialize state
     self._Port=None
     self._ConnectionName=None
     self._ConnectionsFile=ConnectionsFile
+    self._Debug=Debug
+    self._DebugErrors=False
+    self._ExecutionDisabled=False
     self._RunStateFile=RunStateFile()
 
     #Get path of connections.toml file from environment variable if not provided
@@ -633,7 +640,7 @@ class SqlClient:
         Arguments+=["--conn-file",self._ConnectionsFile]
       Process=subprocess.Popen(Arguments,creationflags=CreationFlags)
     except Exception as Ex:
-      Message=f"ERROR Cannot launch SQL daemon: {str(Ex)}"
+      Message=f"Cannot launch SQL daemon: {str(Ex)}"
       return False,Message
 
     #Wait for daemon to start and write run state file
@@ -644,7 +651,7 @@ class SqlClient:
         return True,""
 
     #Daemon did not start in time
-    Message="ERROR SQL daemon did not start in time"
+    Message="SQL daemon did not start in time"
     return False,Message
 
   # ----------------------------------------------------------------------------------------------------------------------
@@ -705,7 +712,7 @@ class SqlClient:
         return False,Message
       Status,Message,Stats=self._RunStateFile.Read()
       if Status==False:
-        Message="ERROR Unable to launch SQL daemon"
+        Message="Unable to launch SQL daemon"
         return False,Message
 
     #Check daemon process is running (kill and launch daemon on error)
@@ -719,13 +726,13 @@ class SqlClient:
         return False,Message
       Status,Message,Stats=self._RunStateFile.Read()
       if Status==False:
-        Message="ERROR Unable to launch SQL daemon"
+        Message="Unable to launch SQL daemon"
         return False,Message
     
     #Check stats contains a valid port number
     self._Port=Stats.get("port",None)
     if self._Port is None or not isinstance(self._Port,int) or self._Port<FREE_PORT_BEG or self._Port>FREE_PORT_END:
-      Message="ERROR SQL daemon run state file does not contain port number or port number is invalid!"
+      Message="SQL daemon run state file does not contain port number or port number is invalid!"
       return False,Message
 
     #Test daemon with ping command
@@ -754,13 +761,13 @@ class SqlClient:
     #Ensure daemon is running
     Status,Message=self._GetSqlDaemon()
     if Status==False:
-      Message=f"ERROR Cannot get SQL daemon: {Message}"
+      Message=f"Cannot get SQL daemon: {Message}"
       return False,Message
     
     #Get daemon statistics
     Status,Message,Stats=self._RunStateFile.Read()
     if Status==False:
-      Message=f"ERROR Cannot read SQL daemon run state file: {Message}"
+      Message=f"Cannot read SQL daemon run state file: {Message}"
       return False,Message
     
     #Inform about daemon status
@@ -799,6 +806,11 @@ class SqlClient:
   # ----------------------------------------------------------------------------------------------------------------------
   def ExecuteSqlQuery(self,SqlQuery,RawMode=False):
 
+    #Exit if execution was cancelled by user
+    if self._ExecutionDisabled==True:
+      Message="Execution cancelled by user"
+      return False,Message,None,None
+
     #Ensure connection name is set
     if self._ConnectionName is None:
       Message="Connection not set, use SetConnection() to set a connection name before executing SQL queries"
@@ -807,13 +819,37 @@ class SqlClient:
     #Ensure daemon is running
     Status,Message=self._GetSqlDaemon()
     if Status==False:
-      Message=f"ERROR Cannot get SQL daemon: {Message}"
+      Message=f"Cannot get SQL daemon: {Message}"
       return False,Message,None,None
     
+    #Format query for display by removing common leading indentation
+    MinIndentation=min([len(Line)-len(Line.lstrip(" ")) for Line in SqlQuery.split("\n") if len(Line.lstrip(" "))!=0])
+    DisplaySql="\n".join([(Line[MinIndentation:] if len(Line) > MinIndentation else "") for Line in SqlQuery.split("\n")])
+
+    #Debug mode: show SQL and prompt user to continue,skip,or cancel
+    if self._Debug==True:
+      print("\n\nAbout to execute SQL query:")
+      print(DisplaySql)
+      Answer=input("Continue: (y)es / (n)o / (a)ll / (c)ancel / (e)rrors only ? ")
+      if Answer.lower()=="a":
+        self._Debug=False
+      elif Answer.lower()=="e":
+        self._Debug=False
+        self._DebugErrors=True
+      elif Answer.lower()=="c":
+        self._ExecutionDisabled=True
+        print("Query execution: Cancelled")
+        Message="Execution cancelled by user"
+        return False,Message,None
+      elif Answer.lower()!="y":
+        print("Query execution: Skipped")
+        Message="Execution skipped by user"
+        return False,Message,None,None
+
     #Send query command to daemon and parse response.
     Status,Message,Response=self._SendCommand({"command":"query","sql":SqlQuery,"con":self._ConnectionName,"raw":RawMode})
     if Status==False:
-      Message=f"ERROR Cannot execute query on SQL daemon: {Message}"
+      Message=f"Cannot execute query on SQL daemon: {Message}"
       return False,Message,None,None
 
     #Get response fields
@@ -824,9 +860,18 @@ class SqlClient:
 
     #Return error when daemon returned an error
     if Status==False:
-      Message=f"ERROR on SQL execution: {Message}"
+      if self._DebugErrors==True:
+        print(f"\n\n[FAIL] Execution of query failed: {Message}\n")
+        print(DisplaySql)
+      if self._Debug==True:
+        print(f"[FAIL] Query execution failed: {Message}\n")
+      Message=f"Execution error: {Message}"
       return False,Message,None,None
-    
+
+    #Print execution result in debug mode
+    if self._Debug==True:
+      print(f"[OK] Query executed ({len(Result)} row(s) returned)\n")
+  
     #Return successful query result
     return True,"",Result,Columns
 
@@ -861,7 +906,7 @@ class SqlClient:
     #Send status command to daemon and parse response
     Status,Message,Response=self._SendCommand({"command":"status"})
     if Status==False:
-      Message=f"ERROR Cannot get status from SQL daemon: {Message}"
+      Message=f"Cannot get status from SQL daemon: {Message}"
       return False,Message,None
     
     #Get response fields
@@ -871,7 +916,7 @@ class SqlClient:
 
     #Return error when daemon returned an error
     if Status==False:
-      Message=f"ERROR on SQL daemon status: {Message}"
+      Message=f"on SQL daemon status: {Message}"
       return False,Message,None
 
     #Return successful statistics result
@@ -975,7 +1020,7 @@ def Main():
   elif Options["run_mode"]=="run":
     ConnectionsFile=Options["conn_file"]
     if ConnectionsFile is None:
-      print("ERROR --conn-file option is required for --run mode")
+      print("Option --conn-file required for --run mode")
       return 1
     SqlDaemonInstance=SqlDaemon(ConnectionsFile=ConnectionsFile)
     Status=SqlDaemonInstance.Listen()
