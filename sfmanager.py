@@ -5,32 +5,33 @@ import pathlib
 import threading
 import contextlib
 
-# ----------------------------------------------------------------------------------------------------------------------
-# Encapsulates Snowflake connection helpers and background library preload.
-# ----------------------------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------------------------
+# SnowflakeManager encapsulates Snowflake connection helpers and background library preloading.
+# -------------------------------------------------------------------------------------------------------------------
 class SnowflakeManager:
 
   #Configuration constants
-  _PRELOAD_LIBRARIES_TIMEOUT_SECS=30
+  PRELOAD_LIBRARIES_TIMEOUT_SECS=30
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Initialize the manager with the path to the Snowflake connections file.
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method initializes the SnowflakeManager with connection settings and optional library preloading.
   # Args:
-  #   PreloadLibraries (bool): When True,Snowflake libraries are preloaded asynchronously in a background thread.
-  #   ConnectionsFile (str): Location of the Snowflake connections definition file.
-  #   ConnParameters (dict): Optional dictionary with connection parameters to use instead of a connections file.
-  # ----------------------------------------------------------------------------------------------------------------------
-  def __init__(self,PreloadLibraries=False,ConnectionsFile=None,ConnParameters=None,Debug=False):
+  #   PreloadLibraries (bool): When True,Snowflake libraries are preloaded asynchronously.
+  #   ConnectionsFile (str): Path to the Snowflake connections definition file.
+  #   Debug (bool): When True,SQL queries are shown for confirmation before execution.
+  # Returns:
+  #   None
+  # -----------------------------------------------------------------------------------------------------------------
+  def __init__(self,PreloadLibraries=False,ConnectionsFile=None,Debug=False):
 
-    #Save parameters
+    #Save parameters as private instance attributes
     self._PreloadLibraries=PreloadLibraries
     self._ConnectionsFile=ConnectionsFile
-    self._ConnParameters=ConnParameters
     self._Debug=Debug
     self._ExecutionDisabled=False
     self._DebugErrors=False
 
-    #Initialize state
+    #Initialize library and connection state
     self._ImportLibrariesError=None
     self._LibrariesReady=None
     self._SnowflakeConnect=None
@@ -38,15 +39,21 @@ class SnowflakeManager:
     self._ConnectionObj=None
     self._ConnectionName=None
 
-    #Preload snowflake libraries
+    #Start asynchronous library preload when requested
     if PreloadLibraries==True:
       self._LibrariesReady=threading.Event()
       threading.Thread(target=self._ImportLibrariesDaemon,daemon=True).start()
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Load Snowflake connector modules asynchronously and store references.
-  # ----------------------------------------------------------------------------------------------------------------------
+  # -----------------------------------------------------------------------------------------------------------------
+  # This private method loads Snowflake connector modules asynchronously and stores references.
+  # Args:
+  #   None
+  # Returns:
+  #   None
+  # -----------------------------------------------------------------------------------------------------------------
   def _ImportLibrariesDaemon(self):
+
+    #Attempt to import Snowflake connector library and store function references
     self._ImportLibrariesError=None
     try:
       from snowflake.connector import connect
@@ -59,21 +66,23 @@ class SnowflakeManager:
       if self._LibrariesReady is not None:
         self._LibrariesReady.set()
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Ensure Snowflake libraries are loaded,blocking for the daemon to finish.
+  # -----------------------------------------------------------------------------------------------------------------
+  # This private method ensures Snowflake libraries are loaded,blocking until the daemon finishes.
+  # Args:
+  #   None
   # Returns:
-  #   tuple[bool,str]: Success flag and a diagnostic message on failure.
-  # ----------------------------------------------------------------------------------------------------------------------
+  #   tuple: Success flag and diagnostic message on failure.
+  # -----------------------------------------------------------------------------------------------------------------
   def _ImportLibraries(self):
 
     #Wait for daemon to finish if libraries are being preloaded
     if self._PreloadLibraries==True:
-      self._LibrariesReady.wait(self._PRELOAD_LIBRARIES_TIMEOUT_SECS)
+      self._LibrariesReady.wait(self.PRELOAD_LIBRARIES_TIMEOUT_SECS)
       if not self._LibrariesReady.is_set():
-        Message=f"Snowflake libraries load timeout reached!"
+        Message="Snowflake libraries load timeout reached!"
         return False,Message
 
-    #Import libraries again if preload failed or not enabled
+    #Import libraries again if preload failed or was not enabled
     if self._SnowflakeConnect is None:
       self._ImportLibrariesDaemon()
 
@@ -84,74 +93,28 @@ class SnowflakeManager:
     #Return success
     return True,""
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Gets the user name for the specified connection.
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method opens the configured Snowflake connection,reusing an existing one when possible.
   # Args:
-  #   ConnectionName (str): Logical connection name defined in the connections file.
-  #                         When it is None,the connection parameters dictionary is used.
+  #   ConnectionName (str): Logical connection name in the connections file.
   # Returns:
-  #   tuple[bool,str,str | None]: Success flag,message,and user name when successful.
-  # ----------------------------------------------------------------------------------------------------------------------
-  def GetConnectionUser(self,ConnectionName=None):
+  #   tuple: Success flag and error message on failure.
+  # -----------------------------------------------------------------------------------------------------------------
+  def OpenConnection(self,ConnectionName):
 
-    #Get user name from connection parameters as provided from command line
-    if self._ConnParameters is not None:
-      if "user" in self._ConnParameters:
-        UserName=self._ConnParameters["user"]
-      else:
-        Message=f"Unable to get user from connection parameters"
-        return False,Message,None
-
-    #Get user name from connections file for given connection name
-    else:
-      try:
-        Config=tomllib.loads(pathlib.Path(self._ConnectionsFile).read_text())
-      except Exception as Ex:
-        Message=f"Cannot read connections file '{self._ConnectionsFile}': {str(Ex)}"
-        return False,Message,None
-      if ConnectionName in Config:
-        if "user" in Config[ConnectionName]:
-          UserName=Config[ConnectionName]["user"]
-        else:
-          Message=f"Unable to get user from connection '{ConnectionName}' in connections file"
-          return False,Message,None
-      else:
-        Message=f"Connection '{ConnectionName}' not found in connections file"
-        return False,Message,None
-
-    #Return success
-    return True,"",UserName
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Open the configured Snowflake connection,reusing existing state when possible.
-  # Args:
-  #   ConnectionName (str): Logical connection name defined in the connections file.
-  #                         When it is None,the connection parameters dictionary is used.
-  # Returns:
-  #   tuple[bool,str]: Success flag and error message in case of error
-  # ----------------------------------------------------------------------------------------------------------------------
-  def OpenConnection(self,ConnectionName=None):
-
-    #Exit if connection is already opened
+    #Exit if connection is already opened for the same connection name
     if self._ConnectionObj is not None and self._ConnectionName==ConnectionName:
       return True,""
 
-    #Close existing connection if any
-    if self._ConnectionObj is not None:
-      self.CloseConnection()
-
-    #Wait for library import
+    #Wait for library import to complete
     Status,Message=self._ImportLibraries()
     if Status==False:
       return False,Message
 
-    #Open connection
+    #Open the Snowflake connection
     try:
       with contextlib.redirect_stdout(io.StringIO()):
-        if self._ConnParameters is not None:
-          self._ConnectionObj=self._SnowflakeConnect(**self._ConnParameters,insecure_mode=True)
-        else:
-          self._ConnectionObj=self._SnowflakeConnect(connections_file_path=pathlib.Path(self._ConnectionsFile),connection_name=ConnectionName,insecure_mode=True)
+        self._ConnectionObj=self._SnowflakeConnect(connections_file_path=pathlib.Path(self._ConnectionsFile),connection_name=ConnectionName)
       self._ConnectionName=ConnectionName
     except Exception as Ex:
       Message=f"Cannot open connection to Snowflake: {str(Ex)}"
@@ -160,37 +123,47 @@ class SnowflakeManager:
     #Return success
     return True,""
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Close the current Snowflake connection if one is open.
-  # ----------------------------------------------------------------------------------------------------------------------
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method closes the current Snowflake connection if one is open.
+  # Args:
+  #   None
+  # Returns:
+  #   None
+  # -----------------------------------------------------------------------------------------------------------------
   def CloseConnection(self):
+
+    #Close connection and reset connection state
     if self._ConnectionObj is None:
       return
     self._ConnectionObj.close()
     self._ConnectionObj=None
     self._ConnectionName=None
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Get the name of the currently opened connection.
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method returns the name of the currently active Snowflake connection.
+  # Args:
+  #   None
   # Returns:
-  #   str | None: Connection name or None if no connection is open or disabled.
-  # ----------------------------------------------------------------------------------------------------------------------
+  #   str | None: Connection name,or None if no connection is open or execution is disabled.
+  # -----------------------------------------------------------------------------------------------------------------
   def GetCurrentConnectionName(self):
+
+    #Return connection name when execution is active and connection is open
     if self._ExecutionDisabled==False and self._ConnectionObj is not None:
       return self._ConnectionName
     else:
       return None
 
-  # ----------------------------------------------------------------------------------------------------------------------
-  # Run a SQL statement against the active Snowflake connection.
+  # -----------------------------------------------------------------------------------------------------------------
+  # This method runs a SQL statement or list of statements against the active Snowflake connection.
   # Args:
-  #   Query (str | list[str]): SQL statement or list of SQL statements to execute.
+  #   Query (str | list): SQL statement or list of SQL statements to execute.
   # Returns:
-  #   tuple[bool,str,list[tuple] | None]: Success flag,message,and fetched results when successful.
-  # ----------------------------------------------------------------------------------------------------------------------
+  #   tuple: Success flag,message,and list of result dictionaries when successful.
+  # -----------------------------------------------------------------------------------------------------------------
   def ExecuteSqlQuery(self,Query):
 
-    #Multi statement mode (when a list is passed)
+    #Multi-statement mode: recursively execute each statement in the list
     if isinstance(Query,list):
       AllResults=[]
       for SingleQuery in Query:
@@ -200,25 +173,25 @@ class SnowflakeManager:
         AllResults.extend(Result)
       return True,"",AllResults
 
-    #Exit if execution is disabled
+    #Exit if execution was cancelled by user
     if self._ExecutionDisabled==True:
-      Message=f"Execution cancelled by user"
+      Message="Execution cancelled by user"
       return False,Message,None
 
-    #Exit if connection was not opened before
+    #Exit if no connection is open
     if self._ConnectionObj is None:
-      Message=f"Snowflake connection is not open"
+      Message="Snowflake connection is not open"
       return False,Message,None
-    
-    #Formatted query for debug output
-    MinIndentation=min([len(Line) - len(Line.lstrip(" ")) for Line in Query.split("\n") if len(Line.lstrip(" "))!=0])
+
+    #Format query for display by removing common leading indentation
+    MinIndentation=min([len(Line)-len(Line.lstrip(" ")) for Line in Query.split("\n") if len(Line.lstrip(" ")) != 0])
     DisplaySql="\n".join([(Line[MinIndentation:] if len(Line) > MinIndentation else "") for Line in Query.split("\n")])
-    
-    #Debug mode: shows SQL being executed and asks user to continue
+
+    #Debug mode: show SQL and prompt user to continue,skip,or cancel
     if self._Debug==True:
-      print(f"\n\nAbout to execute SQL query:")
+      print("\n\nAbout to execute SQL query:")
       print(DisplaySql)
-      Answer=input(f"Continue: (y)es / (n)o / (a)ll / (c)ancel / (e)rrors only ? ")
+      Answer=input("Continue: (y)es / (n)o / (a)ll / (c)ancel / (e)rrors only ? ")
       if Answer.lower()=="a":
         self._Debug=False
       elif Answer.lower()=="e":
@@ -226,40 +199,40 @@ class SnowflakeManager:
         self._DebugErrors=True
       elif Answer.lower()=="c":
         self._ExecutionDisabled=True
-        print(f"Query execution: Cancelled")
-        Message=f"Execution cancelled by user"
+        print("Query execution: Cancelled")
+        Message="Execution cancelled by user"
         return False,Message,None
-      elif Answer.lower()!="y":
-        print(f"Query execution: Skipped")
-        Message=f"Execution skipped by user"
+      elif Answer.lower() != "y":
+        print("Query execution: Skipped")
+        Message="Execution skipped by user"
         return False,Message,None
 
-    #Execute query
+    #Execute the query against the open connection
     try:
       Cursor=self._ConnectionObj.cursor()
       Cursor.execute(Query)
       Result=Cursor.fetchall()
       Metadata=Cursor.description
     except KeyboardInterrupt:
-      Message=f"Interrupted by user"
+      Message="Interrupted by user"
       return False,Message,None
     except Exception as Ex:
       if self._DebugErrors==True:
-        print(f"\n\n[ERROR] Execution of query failed: {str(Ex)}\n")
+        print(f"\n\n[FAIL] Execution of query failed: {str(Ex)}\n")
         print(DisplaySql)
       if self._Debug==True:
-        print(f"[ERROR] Query execution failed: {str(Ex)}\n")
+        print(f"[FAIL] Query execution failed: {str(Ex)}\n")
       Message=f"Execution error: {str(Ex)}"
       return False,Message,None
 
-    #Print results in debug modes
+    #Print execution result in debug mode
     if self._Debug==True:
       print(f"[OK] Query executed ({len(Result)} row(s) returned)\n")
-    
-    #Convert rows into dictionaries
-    ResultDict=[{Metadata[Index].name.lower(): Field for Index,Field in enumerate(Row)} for Row in Result]
 
-    #Return results
+    #Convert result rows into dictionaries keyed by column name
+    ResultDict=[{Metadata[Index].name.lower():Field for Index,Field in enumerate(Row)} for Row in Result]
+
+    #Return success
     return True,"",ResultDict
 
   # ----------------------------------------------------------------------------------------------------------------------

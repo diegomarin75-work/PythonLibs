@@ -194,13 +194,6 @@ Creates a new manager instance and optionally starts background preloading of Sn
 
 ### Methods
 
-#### `GetConnectionUser(ConnectionName=None)`
-
-Retrieves the Snowflake user name for a given connection without opening it.
-
-- **ConnectionName** (`str | None`): The named connection to look up in the connections file. When `None`, the `ConnParameters` dictionary provided at construction is used instead.
-- **Returns:** `tuple[bool, str, str | None]` — `(success, message, user_name)`. On failure, `user_name` is `None` and `message` contains the reason.
-
 #### `OpenConnection(ConnectionName=None)`
 
 Opens a Snowflake connection. If the same connection is already open, it is reused. Blocks until background library preloading completes (if enabled).
