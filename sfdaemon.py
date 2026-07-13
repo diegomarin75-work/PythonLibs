@@ -203,7 +203,9 @@ class SqlDaemon:
 
     #Import snowflake connector lazily for daemon runtime only
     from snowflake.connector import connect
+    from snowflake.connector.util_text import split_statements
     self._SnowflakeConnect=connect
+    self._SplitStatements=split_statements
 
   # ----------------------------------------------------------------------------------------------------------------------
   # Compose daemon statistics object
@@ -373,6 +375,28 @@ class SqlDaemon:
     return True,"",Result,Columns
   
   # ----------------------------------------------------------------------------------------------------------------------
+  # Exposes the Snowflake split_statements utility.
+  # Args:
+  #   Script (str): SQL script to split.
+  # Returns:
+  #   bool: Success flag
+  #   str: Message in case of error
+  #   list of str: List of split SQL statements
+  # ----------------------------------------------------------------------------------------------------------------------
+  def SplitStatements(self,Script):
+
+    #Split statements
+    try:
+      Split=self._SplitStatements(io.StringIO(Script),remove_comments=True)
+      Statements=[Statement[0] for Statement in Split if len(Statement[0].strip())!=0]
+    except Exception as Ex:
+      Message=f"Failed to split statements: {str(Ex)}"
+      return False,Message,None
+    
+    #Return list of statements
+    return True,"",Statements
+
+  # ----------------------------------------------------------------------------------------------------------------------
   # Get requeest data from socket
   # Args:
   # - SocketConnection (socket.socket): Socket connection object
@@ -436,6 +460,18 @@ class SqlDaemon:
             Result={"status":False,"message":Message}
           else:
             Result={"status":True,"message":"","result":QueryResult,"columns":Columns}
+      
+      #Handle split statement request
+      elif Command=="split":
+        if "sql" not in Request:
+          Message="Missing parameter for split command, expected 'sql'"
+          Result={"status":False,"message":Message}
+        else:
+          Status,Message,Statements=self.SplitStatements(Request["sql"])
+          if Status==False:
+            Result={"status":False,"message":Message}
+          else:
+            Result={"status":True,"message":"","statements":Statements}
       
       #Handle status request and return statistics
       elif Command=="status":
@@ -883,8 +919,31 @@ class SqlClient:
   #   list: List of statements.
   # ----------------------------------------------------------------------------------------------------------------------
   def SplitStatements(self,Script):
-    from snowflake.connector.util_text import split_statements
-    return split_statements(io.StringIO(Script),remove_comments=True)
+
+    #Ensure daemon is running
+    Status,Message=self._GetSqlDaemon()
+    if Status==False:
+      Message=f"Cannot get SQL daemon: {Message}"
+      return False,Message,None
+    
+    #Send split command to daemon and parse response.
+    Status,Message,Response=self._SendCommand({"command":"split","sql":Script})
+    if Status==False:
+      Message=f"Cannot split statements on SQL daemon: {Message}"
+      return False,Message,None
+
+    #Get response fields
+    Status=Response.get("status",False)
+    Message=Response.get("message","Unable to get message from SQL daemon response")
+    Statements=Response.get("statements",None)
+
+    #Return error when daemon returned an error
+    if Status==False:
+      Message=f"Statement split error: {Message}"
+      return False,Message,None
+
+    #Return successful statements result
+    return True,"",Statements
 
   # ----------------------------------------------------------------------------------------------------------------------
   # Get SQL daemon statistics
@@ -1019,9 +1078,6 @@ def Main():
   #Run daemon loop mode.
   elif Options["run_mode"]=="run":
     ConnectionsFile=Options["conn_file"]
-    if ConnectionsFile is None:
-      print("Option --conn-file required for --run mode")
-      return 1
     SqlDaemonInstance=SqlDaemon(ConnectionsFile=ConnectionsFile)
     Status=SqlDaemonInstance.Listen()
     if Status==False:
