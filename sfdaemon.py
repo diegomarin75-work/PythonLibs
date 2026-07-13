@@ -30,6 +30,7 @@ FREE_PORT_BEG=49152
 FREE_PORT_END=65535
 PING_OK_MESSAGE="PING_OK"
 LAUNCH_DAEMON_WAIT_SECS=10
+DAEMON_ALIVE_SECONDS=60*60*12
 SF_CONN_FILE_VAR="SNOWFLAKE_CONN"
 SF_HOME_FILE_VAR="SNOWFLAKE_HOME"
 
@@ -538,6 +539,9 @@ class SqlDaemon:
       self._DebugLog.Send(f"{Message}")
       return False
     
+    #Start time
+    StartTime=datetime.datetime.now()
+    
     #Open listening socket and process incoming requests
     with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as Socket:
       Socket.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
@@ -548,12 +552,21 @@ class SqlDaemon:
       #Keep serving requests until termination flag is set
       while self._Terminate==False:
 
+        #Set socket timeout to ensure daemon terminates after DAEMON_ALIVE_SECONDS
+        ElapsedTime=int((datetime.datetime.now()-StartTime).total_seconds())
+        Socket.settimeout(DAEMON_ALIVE_SECONDS-ElapsedTime)
+
         #Accept one incoming client connection
         try:
           self._DebugLog.Send(f"Waiting for incoming connection...")
           SocketConnection,Address=Socket.accept()
           self._DebugLog.Send(f"Accepted connection from {Address[0]}:{Address[1]}")
-        except Exception:
+        except socket.timeout:
+          ElapsedTime=int((datetime.datetime.now()-StartTime).total_seconds())
+          self._DebugLog.Send(f"Socket accept timeout after {ElapsedTime} seconds of uptime, terminating")
+          break
+        except Exception as Ex:
+          self._DebugLog.Send(f"Socket accept exception: {str(Ex)}")
           continue
 
         #Get request as pickle payload
@@ -775,7 +788,7 @@ class SqlClient:
     Status,Messsage,Response=self._SendCommand({"command":"ping"})
     if Status==False:
       Message=f"Daemon test failed: {Message}"
-      return None
+      return False,Message
     ResponseStatus=Response.get("status",False)
     ResponseMessage=Response.get("message",None)
     if ResponseStatus!=True or ResponseMessage!=PING_OK_MESSAGE:
