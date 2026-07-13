@@ -241,7 +241,9 @@ class SqlDaemon:
       "connection_status":self._ConnectionStatus,
       "start_time":self._StartTime.isoformat(),
       "updated_at":datetime.datetime.now().isoformat(),
-      "uptime_seconds":UptimeSecs
+      "uptime_seconds":UptimeSecs,
+      "timeout_seconds":DAEMON_ALIVE_SECONDS,
+      "remaining_seconds":DAEMON_ALIVE_SECONDS-UptimeSecs
     }
     return Stats
 
