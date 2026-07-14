@@ -335,14 +335,13 @@ class SqlDaemon:
   # Args:
   # - ConnectionName (str): Connection name
   # - SqlQuery (str): SQL statement
-  # - RawMode (bool): If True, return raw rows instead of dictionaries
   # Returns:
   # - bool: Success flag
   # - str: Message in case of error
   # - list of dict: List of rows as dictionaries
   # - list of tuple: Metadata for each column
   # ----------------------------------------------------------------------------------------------------------------------
-  def _ExecuteQuery(self,ConnectionName,SqlQuery,RawMode):
+  def _ExecuteQuery(self,ConnectionName,SqlQuery):
 
     #Open connection if needed before executing query
     Status,Message=self._OpenConnection(ConnectionName)
@@ -359,28 +358,22 @@ class SqlDaemon:
       return False,f"{str(Ex)}",None,None
 
     #Convert fetched rows to lower-case column dictionaries
-    if RawMode==True:
-      Result=Rows
-    else:
-      Result=[]
-      for Row in Rows:
-        ResultRow={MetaData[Index].name.lower():Field for Index,Field in enumerate(Row)}
-        Result.append(ResultRow)
+    Result=[]
+    for Row in Rows:
+      ResultRow={MetaData[Index].name:Field for Index,Field in enumerate(Row)}
+      Result.append(ResultRow)
 
     #Get column metadata
-    if RawMode==True:
-      Columns=MetaData
-    else:
-      Columns=[]
-      for Column in MetaData:
-        Name=str(Column.name)
-        TypeName=(SNOWFLAKE_TYPE_CODES[Column.type_code] if Column.type_code in SNOWFLAKE_TYPE_CODES else "unknown")
-        DisplaySize=Column.display_size
-        InternalSize=Column.internal_size
-        Precision=Column.precision
-        Scale=Column.scale
-        Nullable=Column.is_nullable
-        Columns.append({"name":Name,"type":TypeName,"display_size":DisplaySize,"internal_size":InternalSize,"precision":Precision,"scale":Scale,"nullable":Nullable})
+    Columns=[]
+    for Column in MetaData:
+      Name=str(Column.name)
+      TypeName=(SNOWFLAKE_TYPE_CODES[Column.type_code] if Column.type_code in SNOWFLAKE_TYPE_CODES else "unknown")
+      DisplaySize=Column.display_size
+      InternalSize=Column.internal_size
+      Precision=Column.precision
+      Scale=Column.scale
+      IsNullable=Column.is_nullable
+      Columns.append({"name":Name,"type":TypeName,"display_size":DisplaySize,"internal_size":InternalSize,"precision":Precision,"scale":Scale,"is_nullable":IsNullable})
 
     #Update counters after successful execution
     with _ThreadLock:
@@ -467,11 +460,11 @@ class SqlDaemon:
 
       #Handle SQL query request
       elif Command=="query":
-        if "sql" not in Request or "con" not in Request or "raw" not in Request:
-          Message="Missing parameters for query command, expected 'sql', 'con' and 'raw'"
+        if "sql" not in Request or "con" not in Request:
+          Message="Missing parameters for query command, expected 'sql' and 'con'"
           Result={"status":False,"message":Message}
         else:
-          Status,Message,QueryResult,Columns=self._ExecuteQuery(Request["con"],Request["sql"],Request["raw"])
+          Status,Message,QueryResult,Columns=self._ExecuteQuery(Request["con"],Request["sql"])
           if Status==False:
             Result={"status":False,"message":Message}
           else:
@@ -650,8 +643,6 @@ class SqlClient:
       self._ConnectionsFile=os.environ[SF_CONN_FILE_VAR]
     elif self._ConnectionsFile is None and os.environ.get(SF_HOME_FILE_VAR,None) is not None:
       self._ConnectionsFile=os.path.join(os.environ[SF_HOME_FILE_VAR],"connections.toml")
-    else:
-      self._ConnectionsFile=None
     
     #Instantiate SqlDaemon class depending on environment variable or SocketMode argument
     if os.environ.get(SQL_DAEMON_MODE_VAR,None)=="local" or SocketMode==False:
@@ -663,7 +654,7 @@ class SqlClient:
     else:
       self._SocketMode=True
       self._SqlDaemon=None
-
+    
   # ----------------------------------------------------------------------------------------------------------------------
   # Check whether a process id is currently running on Windows.
   # Args:
@@ -878,30 +869,22 @@ class SqlClient:
     self._ConnectionName=None
   
   # ----------------------------------------------------------------------------------------------------------------------
-  # Forgets current connection
-  # Args: None
-  # Returns: None
-  # ----------------------------------------------------------------------------------------------------------------------
-
-
-  # ----------------------------------------------------------------------------------------------------------------------
   # Execute SQL query on client
   # Args:
   # - SqlQuery (str|list): SQL statement or list of statements
-  # - RawMode (bool): If True, return raw rows instead of dictionaries
   # Returns:
   # - bool: Success flag
   # - str: Message in case of error
   # - list of dict: List of rows as dictionaries
   # - list of tuple: Metadata for each column ()
   # ----------------------------------------------------------------------------------------------------------------------
-  def ExecuteSqlQuery(self,SqlQuery,RawMode=False):
+  def ExecuteSqlQuery(self,SqlQuery):
 
-   #Multi-statement mode: recursively execute each statement in the list (does not return column metadata)
+    #Multi-statement mode: recursively execute each statement in the list (does not return column metadata)
     if isinstance(SqlQuery,list):
       AllResults=[]
       for SingleQuery in SqlQuery:
-        Status,Message,Result,_=self.ExecuteSqlQuery(SingleQuery,RawMode)
+        Status,Message,Result,_=self.ExecuteSqlQuery(SingleQuery)
         if Status==False:
           return False,Message,None,None
         AllResults.extend(Result)
@@ -951,7 +934,7 @@ class SqlClient:
         return False,Message,None,None
       
       #Send query command to daemon and parse response.
-      Status,Message,Response=self._SendCommand({"command":"query","sql":SqlQuery,"con":self._ConnectionName,"raw":RawMode})
+      Status,Message,Response=self._SendCommand({"command":"query","sql":SqlQuery,"con":self._ConnectionName})
       if Status==False:
         Message=f"Cannot execute query on SQL daemon: {Message}"
         return False,Message,None,None
@@ -964,7 +947,7 @@ class SqlClient:
     
     #Call daemon directly to execute query if socket mode is disabled
     else:
-      Status,Message,Result,Columns=self._SqlDaemon._ExecuteQuery(self._ConnectionName,SqlQuery,RawMode)
+      Status,Message,Result,Columns=self._SqlDaemon._ExecuteQuery(self._ConnectionName,SqlQuery)
 
     #Return error when daemon returned an error
     if Status==False:
