@@ -30,9 +30,10 @@ FREE_PORT_BEG=49152
 FREE_PORT_END=65535
 PING_OK_MESSAGE="PING_OK"
 LAUNCH_DAEMON_WAIT_SECS=10
-DAEMON_ALIVE_SECONDS=60*60*12
+DAEMON_ALIVE_SECONDS=60*60*15
 SF_CONN_FILE_VAR="SNOWFLAKE_CONN"
 SF_HOME_FILE_VAR="SNOWFLAKE_HOME"
+SQL_DAEMON_MODE_VAR="SQL_DAEMON_MODE"
 
 #Snowflake type codes
 SNOWFLAKE_TYPE_CODES={0 :"int", 1 :"real", 2 :"string", 3 :"date", 4 :"timestamp", 5 :"variant", 6 :"timestamp_ltz", 7 :"timestamp_tz", 
@@ -140,9 +141,6 @@ class DebugLog:
         with open(self._DebugLogFile,"w",encoding="utf-8") as File:
           File.writelines(Lines[-self._MaxLines:])
     
-    #Signal start in debug log
-    self.Send("-"*120, Raw=True)
-
   # -------------------------------------------------------------------------
   # Append a timestamped debug message to the log file
   # Args:
@@ -206,7 +204,7 @@ class SqlDaemon:
     from snowflake.connector import connect
     from snowflake.connector.util_text import split_statements
     self._SnowflakeConnect=connect
-    self._SplitStatements=split_statements
+    self._SplitSqlStatements=split_statements
 
   # ----------------------------------------------------------------------------------------------------------------------
   # Compose daemon statistics object
@@ -305,6 +303,21 @@ class SqlDaemon:
     return True,""
     
   # ----------------------------------------------------------------------------------------------------------------------
+  # Close specified connection to snowflake
+  # Args:
+  # - ConnectionName (str): Snowflake connection name from connections.toml
+  # Returns: None
+  # ----------------------------------------------------------------------------------------------------------------------
+  def _CloseConnection(self,ConnectionName):
+    if ConnectionName in self._Connections:
+      try:
+        self._Connections[ConnectionName].close()
+        del self._Connections[ConnectionName]
+        del self._ConnectionStatus[ConnectionName]
+      except Exception:
+        pass
+
+  # ----------------------------------------------------------------------------------------------------------------------
   # Close all cached Snowflake connections
   # Args: None
   # Returns: None
@@ -386,11 +399,11 @@ class SqlDaemon:
   #   str: Message in case of error
   #   list of str: List of split SQL statements
   # ----------------------------------------------------------------------------------------------------------------------
-  def SplitStatements(self,Script):
+  def _SplitStatements(self,Script):
 
     #Split statements
     try:
-      Split=self._SplitStatements(io.StringIO(Script),remove_comments=True)
+      Split=self._SplitSqlStatements(io.StringIO(Script),remove_comments=True)
       Statements=[Statement[0] for Statement in Split if len(Statement[0].strip())!=0]
     except Exception as Ex:
       Message=f"Failed to split statements: {str(Ex)}"
@@ -470,7 +483,7 @@ class SqlDaemon:
           Message="Missing parameter for split command, expected 'sql'"
           Result={"status":False,"message":Message}
         else:
-          Status,Message,Statements=self.SplitStatements(Request["sql"])
+          Status,Message,Statements=self._SplitStatements(Request["sql"])
           if Status==False:
             Result={"status":False,"message":Message}
           else:
@@ -527,7 +540,8 @@ class SqlDaemon:
   # ----------------------------------------------------------------------------------------------------------------------
   def Listen(self):
 
-    #Stat messae
+    #Stat message
+    self._DebugLog.Send("-"*120, Raw=True)
     self._DebugLog.Send(f"Starting SQL daemon (pid={self._Pid}) ...")
     
     #Find free port to listen on
@@ -617,9 +631,10 @@ class SqlClient:
   # Args:
   # - ConnectionsFile (str): Path to connections.toml file (optional)
   # - Debug (bool): If True, enable debug mode
+  # - SocketMode (bool): If True, use socket mode to communicate with daemon, if False, execute queries directly without daemon
   # Returns: None
   # ----------------------------------------------------------------------------------------------------------------------
-  def __init__(self,ConnectionsFile=None,Debug=False):
+  def __init__(self,ConnectionsFile=None,Debug=False,SocketMode=None):
     
     #Initialize state
     self._Port=None
@@ -637,6 +652,17 @@ class SqlClient:
       self._ConnectionsFile=os.path.join(os.environ[SF_HOME_FILE_VAR],"connections.toml")
     else:
       self._ConnectionsFile=None
+    
+    #Instantiate SqlDaemon class depending on environment variable or SocketMode argument
+    if os.environ.get(SQL_DAEMON_MODE_VAR,None)=="local" or SocketMode==False:
+      self._SocketMode=False
+      self._SqlDaemon=SqlDaemon(ConnectionsFile=self._ConnectionsFile)
+    elif os.environ.get(SQL_DAEMON_MODE_VAR,None)=="socket" or SocketMode==True:
+      self._SocketMode=True
+      self._SqlDaemon=None
+    else:
+      self._SocketMode=True
+      self._SqlDaemon=None
 
   # ----------------------------------------------------------------------------------------------------------------------
   # Check whether a process id is currently running on Windows.
@@ -809,6 +835,11 @@ class SqlClient:
   # ----------------------------------------------------------------------------------------------------------------------
   def WakeUp(self):
 
+    #Error if socket mode is disabled (daemon is not used)
+    if self._SocketMode==False:
+      Message="Cannot wakeup daemon, socket mode is disabled"
+      return False,Message
+    
     #Ensure daemon is running
     Status,Message=self._GetSqlDaemon()
     if Status==False:
@@ -842,21 +873,40 @@ class SqlClient:
   # Returns: None
   # ----------------------------------------------------------------------------------------------------------------------
   def ForgetConnection(self):
+    if self._SocketMode==False:
+      self._SqlDaemon._CloseConnection(self._ConnectionName)
     self._ConnectionName=None
+  
+  # ----------------------------------------------------------------------------------------------------------------------
+  # Forgets current connection
+  # Args: None
+  # Returns: None
+  # ----------------------------------------------------------------------------------------------------------------------
+
 
   # ----------------------------------------------------------------------------------------------------------------------
   # Execute SQL query on client
   # Args:
-  # - SqlQuery (str): SQL statement
+  # - SqlQuery (str|list): SQL statement or list of statements
   # - RawMode (bool): If True, return raw rows instead of dictionaries
   # Returns:
   # - bool: Success flag
   # - str: Message in case of error
   # - list of dict: List of rows as dictionaries
-  # - list of tuple: Metadata for each column
+  # - list of tuple: Metadata for each column ()
   # ----------------------------------------------------------------------------------------------------------------------
   def ExecuteSqlQuery(self,SqlQuery,RawMode=False):
 
+   #Multi-statement mode: recursively execute each statement in the list (does not return column metadata)
+    if isinstance(SqlQuery,list):
+      AllResults=[]
+      for SingleQuery in SqlQuery:
+        Status,Message,Result,_=self.ExecuteSqlQuery(SingleQuery,RawMode)
+        if Status==False:
+          return False,Message,None,None
+        AllResults.extend(Result)
+      return True,"",AllResults,None
+    
     #Exit if execution was cancelled by user
     if self._ExecutionDisabled==True:
       Message="Execution cancelled by user"
@@ -867,12 +917,6 @@ class SqlClient:
       Message="Connection not set, use SetConnection() to set a connection name before executing SQL queries"
       return False,Message,None,None
 
-    #Ensure daemon is running
-    Status,Message=self._GetSqlDaemon()
-    if Status==False:
-      Message=f"Cannot get SQL daemon: {Message}"
-      return False,Message,None,None
-    
     #Format query for display by removing common leading indentation
     MinIndentation=min([len(Line)-len(Line.lstrip(" ")) for Line in SqlQuery.split("\n") if len(Line.lstrip(" "))!=0])
     DisplaySql="\n".join([(Line[MinIndentation:] if len(Line) > MinIndentation else "") for Line in SqlQuery.split("\n")])
@@ -897,17 +941,30 @@ class SqlClient:
         Message="Execution skipped by user"
         return False,Message,None,None
 
-    #Send query command to daemon and parse response.
-    Status,Message,Response=self._SendCommand({"command":"query","sql":SqlQuery,"con":self._ConnectionName,"raw":RawMode})
-    if Status==False:
-      Message=f"Cannot execute query on SQL daemon: {Message}"
-      return False,Message,None,None
+    #Call daemon through socket to execute query if socket mode is enabled
+    if self._SocketMode==True:
+    
+      #Ensure daemon is running
+      Status,Message=self._GetSqlDaemon()
+      if Status==False:
+        Message=f"Cannot get SQL daemon: {Message}"
+        return False,Message,None,None
+      
+      #Send query command to daemon and parse response.
+      Status,Message,Response=self._SendCommand({"command":"query","sql":SqlQuery,"con":self._ConnectionName,"raw":RawMode})
+      if Status==False:
+        Message=f"Cannot execute query on SQL daemon: {Message}"
+        return False,Message,None,None
 
-    #Get response fields
-    Status=Response.get("status",False)
-    Message=Response.get("message","Unable to get message from SQL daemon response")
-    Result=Response.get("result",None)
-    Columns=Response.get("columns",None)
+      #Get response fields
+      Status=Response.get("status",False)
+      Message=Response.get("message","Unable to get message from SQL daemon response")
+      Result=Response.get("result",None)
+      Columns=Response.get("columns",None)
+    
+    #Call daemon directly to execute query if socket mode is disabled
+    else:
+      Status,Message,Result,Columns=self._SqlDaemon._ExecuteQuery(self._ConnectionName,SqlQuery,RawMode)
 
     #Return error when daemon returned an error
     if Status==False:
@@ -935,22 +992,29 @@ class SqlClient:
   # ----------------------------------------------------------------------------------------------------------------------
   def SplitStatements(self,Script):
 
-    #Ensure daemon is running
-    Status,Message=self._GetSqlDaemon()
-    if Status==False:
-      Message=f"Cannot get SQL daemon: {Message}"
-      return False,Message,None
+    #Call daemon through socket to split statements if socket mode is enabled
+    if self._SocketMode==True:
     
-    #Send split command to daemon and parse response.
-    Status,Message,Response=self._SendCommand({"command":"split","sql":Script})
-    if Status==False:
-      Message=f"Cannot split statements on SQL daemon: {Message}"
-      return False,Message,None
+      #Ensure daemon is running
+      Status,Message=self._GetSqlDaemon()
+      if Status==False:
+        Message=f"Cannot get SQL daemon: {Message}"
+        return False,Message,None
+      
+      #Send split command to daemon and parse response.
+      Status,Message,Response=self._SendCommand({"command":"split","sql":Script})
+      if Status==False:
+        Message=f"Cannot split statements on SQL daemon: {Message}"
+        return False,Message,None
 
-    #Get response fields
-    Status=Response.get("status",False)
-    Message=Response.get("message","Unable to get message from SQL daemon response")
-    Statements=Response.get("statements",None)
+      #Get response fields
+      Status=Response.get("status",False)
+      Message=Response.get("message","Unable to get message from SQL daemon response")
+      Statements=Response.get("statements",None)
+    
+    #Call daemon directly to split statements if socket mode is disabled
+    else:
+      Status,Message,Statements=self._SqlDaemon._SplitStatements(Script)
 
     #Return error when daemon returned an error
     if Status==False:
@@ -967,6 +1031,11 @@ class SqlClient:
   # ----------------------------------------------------------------------------------------------------------------------
   def GetStats(self):
 
+    #Error if socket mode is disabled (daemon is not used)
+    if self._SocketMode==False:
+      Message="Cannot get daemon statistics, socket mode is disabled"
+      return False,Message,None
+    
     #Check if run state file exists (if not, daemon is not running)
     if self._RunStateFile.Exists()==False:
       Message="SQL daemon not running (run state file not found)"
@@ -1001,6 +1070,11 @@ class SqlClient:
   # ----------------------------------------------------------------------------------------------------------------------
   def Stop(self):
 
+    #Error if socket mode is disabled (daemon is not used)
+    if self._SocketMode==False:
+      Message="Cannot stop daemon, socket mode is disabled"
+      return Message
+    
     #Try to get running daemon instance
     Status,Message=self._GetSqlDaemon(RelaunchOnError=False)
     

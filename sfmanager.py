@@ -163,6 +163,16 @@ class SnowflakeManager:
   # -----------------------------------------------------------------------------------------------------------------
   def ExecuteSqlQuery(self,Query):
 
+    #Multi-statement mode: recursively execute each statement in the list
+    if isinstance(Query,list):
+      AllResults=[]
+      for SingleQuery in Query:
+        Status,Message,Result=self.ExecuteSqlQuery(SingleQuery)
+        if Status==False:
+          return False,Message,None
+        AllResults.extend(Result)
+      return True,"",AllResults
+    
     #Exit if execution was cancelled by user
     if self._ExecutionDisabled==True:
       Message="Execution cancelled by user"
