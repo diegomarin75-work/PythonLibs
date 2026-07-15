@@ -335,13 +335,14 @@ class SqlDaemon:
   # Args:
   # - ConnectionName (str): Connection name
   # - SqlQuery (str): SQL statement
+  # - LowerCaseNames (bool): If True, convert column names to lower case
   # Returns:
   # - bool: Success flag
   # - str: Message in case of error
   # - list of dict: List of rows as dictionaries
   # - list of tuple: Metadata for each column
   # ----------------------------------------------------------------------------------------------------------------------
-  def _ExecuteQuery(self,ConnectionName,SqlQuery):
+  def _ExecuteQuery(self,ConnectionName,SqlQuery,LowerCaseNames):
 
     #Open connection if needed before executing query
     Status,Message=self._OpenConnection(ConnectionName)
@@ -360,7 +361,10 @@ class SqlDaemon:
     #Convert fetched rows to lower-case column dictionaries
     Result=[]
     for Row in Rows:
-      ResultRow={MetaData[Index].name:Field for Index,Field in enumerate(Row)}
+      if LowerCaseNames==True:
+       ResultRow={MetaData[Index].name.lower():Field for Index,Field in enumerate(Row)}
+      else:
+        ResultRow={MetaData[Index].name:Field for Index,Field in enumerate(Row)}
       Result.append(ResultRow)
 
     #Get column metadata
@@ -461,10 +465,10 @@ class SqlDaemon:
       #Handle SQL query request
       elif Command=="query":
         if "sql" not in Request or "con" not in Request:
-          Message="Missing parameters for query command, expected 'sql' and 'con'"
+          Message="Missing parameters for query command, expected 'sql' and 'con' and 'lower'"
           Result={"status":False,"message":Message}
         else:
-          Status,Message,QueryResult,Columns=self._ExecuteQuery(Request["con"],Request["sql"])
+          Status,Message,QueryResult,Columns=self._ExecuteQuery(Request["con"],Request["sql"],Request["lower"])
           if Status==False:
             Result={"status":False,"message":Message}
           else:
@@ -625,15 +629,17 @@ class SqlClient:
   # - ConnectionsFile (str): Path to connections.toml file (optional)
   # - Debug (bool): If True, enable debug mode
   # - SocketMode (bool): If True, use socket mode to communicate with daemon, if False, execute queries directly without daemon
+  # - LowerCaseNames (bool): If True, convert column names to lower case in query results
   # Returns: None
   # ----------------------------------------------------------------------------------------------------------------------
-  def __init__(self,ConnectionsFile=None,Debug=False,SocketMode=None):
+  def __init__(self,ConnectionsFile=None,Debug=False,SocketMode=None,LowerCaseNames=False):
     
     #Initialize state
     self._Port=None
     self._ConnectionName=None
     self._ConnectionsFile=ConnectionsFile
     self._Debug=Debug
+    self._LowerCaseNames=LowerCaseNames
     self._DebugErrors=False
     self._ExecutionDisabled=False
     self._RunStateFile=RunStateFile()
@@ -787,7 +793,7 @@ class SqlClient:
     Pid=Stats["pid"]
     if self._IsProcessRunning(Pid)==False:
       if RelaunchOnError==False:
-        return False,"SQL Daemon process not running"
+        return False,"SQL daemon process not running"
       self._KillSqlDaemon()
       Status,Message=self._LaunchSqlDaemon()
       if Status==False:
@@ -804,14 +810,14 @@ class SqlClient:
       return False,Message
 
     #Test daemon with ping command
-    Status,Messsage,Response=self._SendCommand({"command":"ping"})
+    Status,Message,Response=self._SendCommand({"command":"ping"})
     if Status==False:
-      Message=f"Daemon test failed: {Message}"
+      Message=f"SQL daemon test failed: {Message}"
       return False,Message
     ResponseStatus=Response.get("status",False)
     ResponseMessage=Response.get("message",None)
     if ResponseStatus!=True or ResponseMessage!=PING_OK_MESSAGE:
-      Message=f"Daemon ping test failed: {ResponseMessage}"
+      Message=f"SQL daemon ping test failed: {ResponseMessage}"
       return False,Message
     
     #Return success
@@ -934,7 +940,7 @@ class SqlClient:
         return False,Message,None,None
       
       #Send query command to daemon and parse response.
-      Status,Message,Response=self._SendCommand({"command":"query","sql":SqlQuery,"con":self._ConnectionName})
+      Status,Message,Response=self._SendCommand({"command":"query","sql":SqlQuery,"con":self._ConnectionName,"lower":self._LowerCaseNames})
       if Status==False:
         Message=f"Cannot execute query on SQL daemon: {Message}"
         return False,Message,None,None
@@ -947,7 +953,7 @@ class SqlClient:
     
     #Call daemon directly to execute query if socket mode is disabled
     else:
-      Status,Message,Result,Columns=self._SqlDaemon._ExecuteQuery(self._ConnectionName,SqlQuery)
+      Status,Message,Result,Columns=self._SqlDaemon._ExecuteQuery(self._ConnectionName,SqlQuery,self._LowerCaseNames)
 
     #Return error when daemon returned an error
     if Status==False:
@@ -1085,7 +1091,7 @@ class SqlClient:
 def BuildArgumentParser():
 
   #Build parser with explicit operation flags.
-  Parser=argparse.ArgumentParser(prog="sfd.py",description="Snowflake SQL Daemon",formatter_class=argparse.RawTextHelpFormatter,add_help=False)
+  Parser=argparse.ArgumentParser(prog="sfd.py",description="Snowflake SQL daemon",formatter_class=argparse.RawTextHelpFormatter,add_help=False)
   RunGroup=Parser.add_mutually_exclusive_group()
   RunGroup.add_argument("--run",dest="Run",action="store_true",help="Start daemon and listen for socket commands")
   RunGroup.add_argument("--wakeup",dest="WakeUp",action="store_true",help="Wakeup daemon (launch if not running)")
