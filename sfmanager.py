@@ -185,13 +185,13 @@ class SnowflakeManager:
 
     #Format query for display by removing common leading indentation
     MinIndentation=min([len(Line)-len(Line.lstrip(" ")) for Line in Query.split("\n") if len(Line.lstrip(" ")) != 0])
-    DisplaySql="\n".join([(Line[MinIndentation:] if len(Line) > MinIndentation else "") for Line in Query.split("\n")])
+    DisplaySql="\n".join([(Line[MinIndentation:] if len(Line)>MinIndentation else "") for Line in Query.split("\n")])
 
     #Debug mode: show SQL and prompt user to continue,skip,or cancel
     if self._Debug==True:
       print("\n\nAbout to execute SQL query:")
       print(DisplaySql)
-      Answer=input("Continue: (y)es / (n)o / (a)ll / (c)ancel / (e)rrors only ? ")
+      Answer=input("Continue: (y)es/(n)o/(a)ll/(c)ancel/(e)rrors only ? ")
       if Answer.lower()=="a":
         self._Debug=False
       elif Answer.lower()=="e":

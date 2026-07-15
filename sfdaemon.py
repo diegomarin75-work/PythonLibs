@@ -36,8 +36,8 @@ SF_HOME_FILE_VAR="SNOWFLAKE_HOME"
 SQL_DAEMON_MODE_VAR="SQL_DAEMON_MODE"
 
 #Snowflake type codes
-SNOWFLAKE_TYPE_CODES={0 :"int", 1 :"real", 2 :"string", 3 :"date", 4 :"timestamp", 5 :"variant", 6 :"timestamp_ltz", 7 :"timestamp_tz", 
-                      8 :"timestamp_tz", 9 :"object", 10:"array", 11:"binary", 12:"time", 13:"boolean", 14:"geography", 15:"geometry", 16:"vector"  }
+SNOWFLAKE_TYPE_CODES={0 :"int",1 :"real",2 :"string",3 :"date",4 :"timestamp",5 :"variant",6 :"timestamp_ltz",7 :"timestamp_tz",
+                      8 :"timestamp_tz",9 :"object",10:"array",11:"binary",12:"time",13:"boolean",14:"geography",15:"geometry",16:"vector"  }
 
 #Global thread lock for synchronizing access to shared resources
 _ThreadLock=threading.Lock()
@@ -86,7 +86,7 @@ class RunStateFile:
 
   # ----------------------------------------------------------------------------------------------------------------------
   # Write daemon runtime state JSON file
-  # (write is atomic operation, first write to a temp file and then rename to avoid partial writes)
+  # (write is atomic operation,first write to a temp file and then rename to avoid partial writes)
   # Args: 
   # - Stats (dict): Run file State Statistics
   # Returns:
@@ -145,7 +145,7 @@ class DebugLog:
   # Append a timestamped debug message to the log file
   # Args:
   # - Message (string): Message to log
-  # - Raw (bool): If True, write message as-is without timestamp or caller info
+  # - Raw (bool): If True,write message as-is without timestamp or caller info
   # Returns: None
   # -------------------------------------------------------------------------
   def Send(self,Message,Raw=False):
@@ -214,7 +214,7 @@ class SqlDaemon:
   # ----------------------------------------------------------------------------------------------------------------------
   def _FindFreePort(self):
     for Port in range(FREE_PORT_BEG,FREE_PORT_END+1):
-      with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as Socket:
+      with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as Socket:
         try:
           Socket.bind((HOST,Port))
           self._Port=Port
@@ -286,7 +286,7 @@ class SqlDaemon:
 
       #Error if connections file is not resolved
       if self._ConnectionsFile is None:
-        Message="Cannot open connection, connections.toml file not provided or found in environment variables"
+        Message="Cannot open connection,connections.toml file not provided or found in environment variables"
         return False,Message
 
       #Open and cache a new Snowflake connection
@@ -335,7 +335,7 @@ class SqlDaemon:
   # Args:
   # - ConnectionName (str): Connection name
   # - SqlQuery (str): SQL statement
-  # - LowerCaseNames (bool): If True, convert column names to lower case
+  # - LowerCaseNames (bool): If True,convert column names to lower case
   # Returns:
   # - bool: Success flag
   # - str: Message in case of error
@@ -465,7 +465,7 @@ class SqlDaemon:
       #Handle SQL query request
       elif Command=="query":
         if "sql" not in Request or "con" not in Request:
-          Message="Missing parameters for query command, expected 'sql' and 'con' and 'lower'"
+          Message="Missing parameters for query command,expected 'sql' and 'con' and 'lower'"
           Result={"status":False,"message":Message}
         else:
           Status,Message,QueryResult,Columns=self._ExecuteQuery(Request["con"],Request["sql"],Request["lower"])
@@ -477,7 +477,7 @@ class SqlDaemon:
       #Handle split statement request
       elif Command=="split":
         if "sql" not in Request:
-          Message="Missing parameter for split command, expected 'sql'"
+          Message="Missing parameter for split command,expected 'sql'"
           Result={"status":False,"message":Message}
         else:
           Status,Message,Statements=self._SplitStatements(Request["sql"])
@@ -538,7 +538,7 @@ class SqlDaemon:
   def Listen(self):
 
     #Stat message
-    self._DebugLog.Send("-"*120, Raw=True)
+    self._DebugLog.Send("-"*120,Raw=True)
     self._DebugLog.Send(f"Starting SQL daemon (pid={self._Pid}) ...")
     
     #Find free port to listen on
@@ -576,7 +576,7 @@ class SqlDaemon:
           self._DebugLog.Send(f"Accepted connection from {Address[0]}:{Address[1]}")
         except socket.timeout:
           ElapsedTime=int((datetime.datetime.now()-StartTime).total_seconds())
-          self._DebugLog.Send(f"Socket accept timeout after {ElapsedTime} seconds of uptime, terminating")
+          self._DebugLog.Send(f"Socket accept timeout after {ElapsedTime} seconds of uptime,terminating")
           break
         except Exception as Ex:
           self._DebugLog.Send(f"Socket accept exception: {str(Ex)}")
@@ -593,12 +593,12 @@ class SqlDaemon:
         #Validate command field in request
         if "command" not in Request:
           SocketConnection.close()
-          Message="Invalid request, missing command"
+          Message="Invalid request,missing command"
           self._DebugLog.Send(f"{Message}")
           continue
         Command=Request["command"]
 
-        #Execute command (if command is SQL query, it will be executed in a separate thread to avoid blocking the socket loop)
+        #Execute command (if command is SQL query,it will be executed in a separate thread to avoid blocking the socket loop)
         if Command=="query":
           Thread=threading.Thread(target=self._ExecuteCommand,args=(Command,Request,SocketConnection))
           self._DebugLog.Send(f"Executing SQL query command in a separate thread {Thread.name} ...")
@@ -627,9 +627,9 @@ class SqlClient:
   # Initialize daemon state
   # Args:
   # - ConnectionsFile (str): Path to connections.toml file (optional)
-  # - Debug (bool): If True, enable debug mode
-  # - SocketMode (bool): If True, use socket mode to communicate with daemon, if False, execute queries directly without daemon
-  # - LowerCaseNames (bool): If True, convert column names to lower case in query results
+  # - Debug (bool): If True,enable debug mode
+  # - SocketMode (bool): If True,use socket mode to communicate with daemon,if False,execute queries directly without daemon
+  # - LowerCaseNames (bool): If True,convert column names to lower case in query results
   # Returns: None
   # ----------------------------------------------------------------------------------------------------------------------
   def __init__(self,ConnectionsFile=None,Debug=False,SocketMode=None,LowerCaseNames=False):
@@ -834,7 +834,7 @@ class SqlClient:
 
     #Error if socket mode is disabled (daemon is not used)
     if self._SocketMode==False:
-      Message="Cannot wakeup daemon, socket mode is disabled"
+      Message="Cannot wakeup daemon,socket mode is disabled"
       return False,Message
     
     #Ensure daemon is running
@@ -850,7 +850,7 @@ class SqlClient:
       return False,Message
     
     #Inform about daemon status
-    print(f"SQL daemon is running (pid={Stats['pid']}, port={Stats['port']}, uptime={Stats['uptime_seconds']}s, connections={Stats['open_connections']}, queries={Stats['total_queries']})")
+    print(f"SQL daemon is running (pid={Stats['pid']},port={Stats['port']},uptime={Stats['uptime_seconds']}s,connections={Stats['open_connections']},queries={Stats['total_queries']})")
     
     #Return success
     return True,""
@@ -903,18 +903,18 @@ class SqlClient:
 
     #Ensure connection name is set
     if self._ConnectionName is None:
-      Message="Connection not set, use SetConnection() to set a connection name before executing SQL queries"
+      Message="Connection not set,use SetConnection() to set a connection name before executing SQL queries"
       return False,Message,None,None
 
     #Format query for display by removing common leading indentation
     MinIndentation=min([len(Line)-len(Line.lstrip(" ")) for Line in SqlQuery.split("\n") if len(Line.lstrip(" "))!=0])
-    DisplaySql="\n".join([(Line[MinIndentation:] if len(Line) > MinIndentation else "") for Line in SqlQuery.split("\n")])
+    DisplaySql="\n".join([(Line[MinIndentation:] if len(Line)>MinIndentation else "") for Line in SqlQuery.split("\n")])
 
     #Debug mode: show SQL and prompt user to continue,skip,or cancel
     if self._Debug==True:
       print("\n\nAbout to execute SQL query:")
       print(DisplaySql)
-      Answer=input("Continue: (y)es / (n)o / (a)ll / (c)ancel / (e)rrors only ? ")
+      Answer=input("Continue: (y)es/(n)o/(a)ll/(c)ancel/(e)rrors only ? ")
       if Answer.lower()=="a":
         self._Debug=False
       elif Answer.lower()=="e":
@@ -1022,10 +1022,10 @@ class SqlClient:
 
     #Error if socket mode is disabled (daemon is not used)
     if self._SocketMode==False:
-      Message="Cannot get daemon statistics, socket mode is disabled"
+      Message="Cannot get daemon statistics,socket mode is disabled"
       return False,Message,None
     
-    #Check if run state file exists (if not, daemon is not running)
+    #Check if run state file exists (if not,daemon is not running)
     if self._RunStateFile.Exists()==False:
       Message="SQL daemon not running (run state file not found)"
       return False,Message,None
@@ -1061,7 +1061,7 @@ class SqlClient:
 
     #Error if socket mode is disabled (daemon is not used)
     if self._SocketMode==False:
-      Message="Cannot stop daemon, socket mode is disabled"
+      Message="Cannot stop daemon,socket mode is disabled"
       return Message
     
     #Try to get running daemon instance
@@ -1072,15 +1072,15 @@ class SqlClient:
       Status,Message,Response=self._SendCommand({"command":"terminate"})
       if Status==False:
         self._KillSqlDaemon()
-        return f"Daemon forcefully terminated, did not respond to terminate command: {Message}"
+        return f"Daemon forcefully terminated,did not respond to terminate command: {Message}"
       if Response.get("status",False)!=True:
         self._KillSqlDaemon()
-        return f"Daemon forcefully terminated, terminate command failed: {Response.get('message','Unknown error')}"
+        return f"Daemon forcefully terminated,terminate command failed: {Response.get('message','Unknown error')}"
       return "SQL daemon terminated successfully"
     
-    #If appears not running, forcefully kill any remaining process
+    #If appears not running,forcefully kill any remaining process
     self._KillSqlDaemon()
-    return f"SQL daemon appears not running, forceful termination launched anyway"
+    return f"SQL daemon appears not running,forceful termination launched anyway"
 
 # ----------------------------------------------------------------------------------------------------------------------
 # Build argparse parser for command line options.
@@ -1124,7 +1124,7 @@ def ParseArguments():
   ModeFlags={"run":Args.Run,"wakeup":Args.WakeUp,"status":Args.Status,"stop":Args.Stop}
   SelectedMode=[ModeName for ModeName,Enabled in ModeFlags.items() if Enabled==True]
   if len(SelectedMode)!=1:
-    return False,"One and only one mode must be passed: --run, --wakeup, --status or --stop",None
+    return False,"One and only one mode must be passed: --run,--wakeup,--status or --stop",None
   RunMode=SelectedMode[0]
 
   #Get options as dictionary

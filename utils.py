@@ -10,7 +10,7 @@ from pathlib import Path
 # ----------------------------------------------------------------------------------------------------------------------
 def GetVersion():
   try:
-    Version=(Path(__file__).resolve().parent / "VERSION").read_text(encoding="utf-8").strip()
+    Version=(Path(__file__).resolve().parent/"VERSION").read_text(encoding="utf-8").strip()
   except Exception:
     Version="0.0.0"
   return Version
@@ -61,7 +61,7 @@ def AbsPath(FilePath,RelativeTo=None):
   else:
     AbsFilePath=os.path.normpath(os.path.abspath(FilePath))
   if len(AbsFilePath)>=2 and AbsFilePath[0].lower()>="a" and AbsFilePath[0].lower()<="z" and AbsFilePath[1]==":":
-    AbsFilePath=AbsFilePath[0].lower() + AbsFilePath[1:]
+    AbsFilePath=AbsFilePath[0].lower()+AbsFilePath[1:]
   return AbsFilePath
 
 # ---------------------------------------------------------------------------------------------------------------------

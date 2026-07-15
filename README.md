@@ -19,7 +19,7 @@ Console output library with ANSI color support, spinner/progress-bar animations,
 ```python
 from printlib import PrintingLibrary
 
-p = PrintingLibrary()
+p=PrintingLibrary()
 p.Print("Processing files...", Wheel=True)
 p.Print("Step 3 of 10", Volatile=True, BarProgress=3, BarLength=10)
 p.Print(p.AnsiColor("Success!", p.ANSI_FD_GREEN))
@@ -38,7 +38,7 @@ The class exposes a full set of ANSI color code constants using the naming conve
 
 Available colors: `BLACK`, `RED`, `GREEN`, `YELLOW`, `BLUE`, `MAGENTA`, `CYAN`, `WHITE`.
 
-Example: `ANSI_FD_RED` (dark red foreground = 31), `ANSI_BB_CYAN` (bright cyan background = 106).
+Example: `ANSI_FD_RED` (dark red foreground=31), `ANSI_BB_CYAN` (bright cyan background=106).
 
 ### Constructor
 
@@ -175,9 +175,9 @@ Wraps the Snowflake Python Connector with connection lifecycle management, backg
 ```python
 from sfmanager import SnowflakeManager
 
-sf = SnowflakeManager(PreloadLibraries=True, ConnectionsFile="~/.snowflake/connections.toml")
+sf=SnowflakeManager(PreloadLibraries=True, ConnectionsFile="~/.snowflake/connections.toml")
 sf.OpenConnection("my_connection")
-ok, msg, rows = sf.ExecuteSqlQuery("SELECT CURRENT_USER()")
+ok, msg, rows=sf.ExecuteSqlQuery("SELECT CURRENT_USER()")
 sf.CloseConnection()
 ```
 
@@ -221,7 +221,7 @@ Executes one or more SQL statements against the active connection.
 In debug mode, each query is printed before execution and the user is prompted to continue, skip, run all, cancel, or switch to errors-only mode.
 
 ```python
-ok, msg, rows = sf.ExecuteSqlQuery("SELECT name, created_on FROM databases")
+ok, msg, rows=sf.ExecuteSqlQuery("SELECT name, created_on FROM databases")
 if ok:
     for row in rows:
         print(row["name"], row["created_on"])
@@ -289,7 +289,7 @@ Executes a shell command and captures its combined stdout/stderr output.
 - **Returns:** `tuple[int, str]` — `(return_code, output_text)`.
 
 ```python
-code, output = ExecCommand("git status")
+code, output=ExecCommand("git status")
 ```
 
 #### `GetGitRepoRoot(GitRepo)`
@@ -324,7 +324,7 @@ Detects a file's text encoding by sampling bytes and running the `chardet` heuri
 - **Returns:** `tuple[bool, str, str | None]` — `(success, message, encoding)`. On failure, `encoding` is `None`.
 
 ```python
-ok, msg, enc = DetectFileEncoding("data.csv")
+ok, msg, enc=DetectFileEncoding("data.csv")
 # (True, "", "utf-8")
 ```
 
@@ -341,7 +341,7 @@ Parameters:
 - **Returns:** `tuple[bool, str, dict | None]` — `(success, message, parsed_object)`. On failure, `parsed_object` is `None`.
 
 ```python
-ok, msg, config = JsonFileParser("settings.json")
+ok, msg, config=JsonFileParser("settings.json")
 ```
 
 ---
