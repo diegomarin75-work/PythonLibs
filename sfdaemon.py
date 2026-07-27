@@ -865,6 +865,15 @@ class SqlClient:
     self._ConnectionName=ConnectionName
 
   # ----------------------------------------------------------------------------------------------------------------------
+  # Gets default connection to execute SQL queries
+  # Args: None
+  # Returns:
+  # - str: Snowflake connection name
+  # ----------------------------------------------------------------------------------------------------------------------
+  def GetConnection(self):
+    return self._ConnectionName
+
+  # ----------------------------------------------------------------------------------------------------------------------
   # Forgets current connection
   # Args: None
   # Returns: None
