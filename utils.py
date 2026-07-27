@@ -1,9 +1,11 @@
 #Import libraries
 import os
+import re
 import json
 import chardet
 import subprocess
 from pathlib import Path
+from importlib.util import spec_from_file_location, module_from_spec
 
 # ----------------------------------------------------------------------------------------------------------------------
 # Reads the tool version from the VERSION file.
@@ -160,6 +162,22 @@ def DetectFileEncoding(FilePath,NumBytes=100000):
 def JsonFileParser(FilePath):
 
   # ----------------------------------------------------------------------------------------------------------------------
+  # Converts Python triple-quoted raw strings (r"""...""" or r'''...''') to valid JSON strings.
+  # Backslashes are treated as literal characters (raw string semantics).
+  # ----------------------------------------------------------------------------------------------------------------------
+  def ReplaceTripleQuotedRawStrings(Content):
+    def RawToJsonStr(Match):
+      RawContent=Match.group(1)
+      JsonContent=RawContent.replace("\\","\\\\")
+      JsonContent=JsonContent.replace('"','\\"')
+      JsonContent=JsonContent.replace("\n","\\n")
+      JsonContent=JsonContent.replace("\r","\\r")
+      JsonContent=JsonContent.replace("\t","\\t")
+      return '"'+JsonContent+'"'
+    Content=re.sub(r'"""(.*?)"""',RawToJsonStr,Content,flags=re.DOTALL)
+    return Content
+
+  # ----------------------------------------------------------------------------------------------------------------------
   # Replaces new lines inside strings as \n (as standard JSON requires).
   # ----------------------------------------------------------------------------------------------------------------------
   def FixMultilineJson(Content):
@@ -195,6 +213,7 @@ def JsonFileParser(FilePath):
     FileHnd=open(FilePath,"r",encoding="utf-8")
     FileContent=FileHnd.read()
     FileHnd.close()
+    FileContent=ReplaceTripleQuotedRawStrings(FileContent)
     FileContent="\n".join([(Line if Line.strip().startswith("//")==False else "") for Line in FileContent.split("\n")])
     FileContent=FixMultilineJson(FileContent)
     JsonObj=json.loads(FileContent)
@@ -204,3 +223,21 @@ def JsonFileParser(FilePath):
 
   #Return result
   return True,"",JsonObj
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Load a Python configuration file that defines a CONFIG variable.
+# Args:
+#   FilePath (str): Path to the Python configuration file.
+# Returns:
+#   dict: The CONFIG variable defined in the Python file.
+# ----------------------------------------------------------------------------------------------------------------------
+def GetPythonConfig(FilePath):
+  try:
+    Spec=spec_from_file_location("_loaded_module",FilePath)
+    Module=module_from_spec(spec)
+    Spec.loader.exec_module(Module)
+    Config=getattr(Module,CONFIG)
+  except Exception as Ex:
+    Message=f"Exception reading configuration file ({FilePath}): {str(Ex)}"
+    return False,Message,None
+  return True,"",Config
