@@ -234,9 +234,9 @@ def JsonFileParser(FilePath):
 def GetPythonConfig(FilePath):
   try:
     Spec=spec_from_file_location("_loaded_module",FilePath)
-    Module=module_from_spec(spec)
+    Module=module_from_spec(Spec)
     Spec.loader.exec_module(Module)
-    Config=getattr(Module,CONFIG)
+    Config=getattr(Module,"CONFIG")
   except Exception as Ex:
     Message=f"Exception reading configuration file ({FilePath}): {str(Ex)}"
     return False,Message,None
